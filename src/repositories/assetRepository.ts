@@ -6,5 +6,6 @@ export const assetRepository = {
   get: (id: string) => db.assets.get(id),
   findByNaturalKey: (market: MarketCode, symbol: string, currency: CurrencyCode) =>
     db.assets.where('[market+symbol+currency]').equals([market, symbol, currency]).first(),
-  put: (asset: Asset) => db.assets.put(asset)
+  put: (asset: Asset) => db.assets.put(asset),
+  delete: (id: string) => db.assets.delete(id)
 }

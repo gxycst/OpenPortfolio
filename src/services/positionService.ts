@@ -55,9 +55,9 @@ export const positionService = {
       quantity: input.quantity,
       averageCost,
       costCurrency: input.currency,
-      priceMode: input.assetType === 'fund' ? 'auto' : 'manual',
-      manualPrice: input.assetType === 'cash' ? 1 : input.assetType === 'fund' ? undefined : input.currentPrice,
-      manualPriceDate: input.currentPrice === undefined || input.assetType === 'fund' ? undefined : todayLocalDate(),
+      priceMode: input.assetType === 'cash' ? 'manual' : 'auto',
+      manualPrice: input.assetType === 'cash' ? 1 : undefined,
+      manualPriceDate: input.assetType === 'cash' ? todayLocalDate() : undefined,
       note: input.note?.trim() || undefined,
       isClosed: false,
       createdAt: existing?.createdAt ?? now,
@@ -134,5 +134,5 @@ function resolveAverageCost(input: PositionInput): number {
 
 function priceTypeFor(assetType: AssetType): PriceType {
   if (assetType === 'fund') return 'nav'
-  return assetType === 'cash' ? 'fixed' : 'manual'
+  return assetType === 'cash' ? 'fixed' : 'market'
 }

@@ -41,7 +41,10 @@ export async function searchAssetCandidatesOnline(
     if (!deduped.has(key)) deduped.set(key, candidate)
   }
 
-  return Array.from(deduped.values()).slice(0, limit)
+  const normalizedQuery = query.trim().toUpperCase()
+  return Array.from(deduped.values())
+    .sort((a, b) => score(b, normalizedQuery) - score(a, normalizedQuery))
+    .slice(0, limit)
 }
 
 function matches(candidate: AssetCandidate, query: string): boolean {
@@ -50,8 +53,9 @@ function matches(candidate: AssetCandidate, query: string): boolean {
 
 function score(candidate: AssetCandidate, query: string): number {
   const symbol = candidate.symbol.toUpperCase()
-  if (symbol === query) return 4
-  if (symbol.startsWith(query)) return 3
-  if (candidate.source === 'local') return 2
-  return 1
+  const sourceBoost = candidate.source === 'local' ? 30 : candidate.source === 'online' ? 20 : 10
+  if (symbol === query) return sourceBoost + 4
+  if (symbol.startsWith(query)) return sourceBoost + 3
+  if (candidate.name.toUpperCase().includes(query)) return sourceBoost + 2
+  return sourceBoost
 }

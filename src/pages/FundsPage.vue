@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import type { DataTableColumns, DataTableRowKey, FormInst, FormRules } from 'naive-ui'
+import { NAlert, NButton, NCard, NDataTable, NForm, NFormItem, NInput, NInputNumber, NModal, NSelect, useMessage } from 'naive-ui'
+import { h, nextTick } from 'vue'
 import { fetchLatestFundNav, type FundNavQuote } from '@/providers/funds/eastmoneyFundNavProvider'
 import type { AssetCandidate } from '@/providers/manualAssetCatalog'
 import { searchAssetCandidatesOnline } from '@/services/assetSearchService'
 import { usePortfolioStore } from '@/stores/portfolioStore'
-import type { CurrencyCode } from '@/types/domain'
+import type { CurrencyCode, PositionValuation } from '@/types/domain'
 import { accountMatchesTypes, currencyForAccountType, fundAccountTypes } from '@/utils/accountType'
 import { formatCurrency, formatPercent } from '@/utils/format'
+import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
 
 const store = usePortfolioStore()
+const message = useMessage()
 const currencyLabels: Record<CurrencyCode, string> = {
   CNY: '人民币',
   USD: '美元',
@@ -30,19 +35,126 @@ const form = reactive({
   priceDate: '',
   priceProviderId: ''
 })
+const formRef = ref<FormInst | null>(null)
 const fundSearchFocused = ref(false)
 const fundCandidates = ref<AssetCandidate[]>([])
 const fundSearchLoading = ref(false)
 const navLoading = ref(false)
 const navError = ref('')
 const pendingRemoval = ref<{ id: string; name: string } | undefined>()
+const showCreateModal = ref(false)
+const showBatchRemoveModal = ref(false)
+const selectedFundCode = ref('')
+const selectedAccountFilter = ref('')
+const keywordFilter = ref('')
+const checkedRowKeys = ref<DataTableRowKey[]>([])
+const fundTableMaxHeight = 'calc(100vh - 278px)'
+const tablePage = ref(1)
+const tablePageSize = ref(10)
+const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
 
 const fundAccounts = computed(() => store.accounts.filter((account) => accountMatchesTypes(account, fundAccountTypes)))
 const selectedAccount = computed(() => fundAccounts.value.find((account) => account.id === form.accountId))
-const fundPositions = computed(() => store.summary?.positions.filter((item) => item.assetType === 'fund') ?? [])
+const fundAccountFilterOptions = computed(() => [
+  { label: '全部', value: '' },
+  ...fundAccounts.value.map((account) => ({ label: account.name, value: account.id }))
+])
+const fundPositions = computed(() =>
+  (store.summary?.positions ?? [])
+    .filter((item) => item.assetType === 'fund')
+    .filter((item) => (selectedAccountFilter.value ? item.accountId === selectedAccountFilter.value : true))
+    .filter((item) => {
+      const keyword = keywordFilter.value.trim().toUpperCase()
+      if (!keyword) return true
+      return item.assetName.toUpperCase().includes(keyword) || item.assetSymbol.toUpperCase().includes(keyword)
+    })
+)
+const selectedBatchPositions = computed(() =>
+  fundPositions.value.filter((position) => checkedRowKeys.value.includes(position.positionId))
+)
+const fundColumns: DataTableColumns<PositionValuation> = [
+  {
+    type: 'selection'
+  },
+  {
+    title: '基金',
+    key: 'assetName',
+    render: (row) => h('span', [row.assetName, ' ', h('span', { class: 'muted' }, row.assetSymbol)])
+  },
+  {
+    title: '份额',
+    key: 'quantity'
+  },
+  {
+    title: '最新净值',
+    key: 'currentPrice',
+    render: (row) => row.currentPrice ?? '缺失'
+  },
+  {
+    title: '净值日期',
+    key: 'priceDate',
+    render: (row) => row.priceDate ?? '缺失'
+  },
+  {
+    title: '市值',
+    key: 'marketValue',
+    render: (row) => formatCurrency(row.marketValue, row.nativeCurrency)
+  },
+  {
+    title: '盈亏',
+    key: 'profitLoss',
+    render: (row) =>
+      h(
+        'span',
+        { class: { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 } },
+        formatCurrency(row.profitLoss, row.nativeCurrency)
+      )
+  },
+  {
+    title: '收益率',
+    key: 'profitRate',
+    render: (row) => formatPercent(row.profitRate)
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 96,
+    render: (row) =>
+      h(
+        NButton,
+        {
+          size: 'small',
+          type: 'error',
+          secondary: true,
+          onClick: () => requestRemovePosition(row.positionId, row.assetName)
+        },
+        { default: () => '删除' }
+      )
+  }
+]
 const canCreate = computed(() => fundAccounts.value.length > 0)
 const showFundCandidates = computed(() => fundSearchFocused.value && fundCandidates.value.length > 0)
+const rules: FormRules = {
+  accountId: {
+    required: true,
+    message: '请选择账户',
+    trigger: ['change']
+  },
+  symbol: {
+    required: true,
+    message: '请输入基金名称或代码搜索',
+    trigger: ['input', 'blur']
+  },
+  quantity: {
+    required: true,
+    type: 'number',
+    validator: (_rule, value: number) => Number.isFinite(value) && value > 0,
+    message: '请输入大于 0 的持有份额',
+    trigger: ['input', 'blur']
+  }
+}
 let searchTimer: ReturnType<typeof setTimeout> | undefined
+let navTimer: ReturnType<typeof setTimeout> | undefined
 
 onMounted(async () => {
   await store.refresh()
@@ -55,10 +167,34 @@ watch(
   () => syncAccountCurrency()
 )
 
+watch([selectedAccountFilter, keywordFilter], () => {
+  tablePage.value = 1
+  checkedRowKeys.value = []
+})
+
 watch(
   () => form.symbol,
   (query) => {
+    if (!query.trim()) {
+      if (searchTimer) clearTimeout(searchTimer)
+      if (navTimer) clearTimeout(navTimer)
+      fundCandidates.value = []
+      fundSearchLoading.value = false
+      fundSearchFocused.value = false
+      selectedFundCode.value = ''
+      form.currentPrice = undefined
+      form.priceDate = ''
+      form.priceProviderId = ''
+      navError.value = ''
+      return
+    }
     fundSearchFocused.value = true
+    selectedFundCode.value = /^\d{6}$/.test(query.trim()) ? query.trim() : ''
+    form.name = selectedFundCode.value ? form.name : ''
+    form.currentPrice = undefined
+    form.priceDate = ''
+    form.priceProviderId = ''
+    navError.value = ''
     if (searchTimer) clearTimeout(searchTimer)
     searchTimer = setTimeout(async () => {
       fundSearchLoading.value = true
@@ -67,12 +203,19 @@ watch(
       )
       fundSearchLoading.value = false
     }, 250)
+    if (navTimer) clearTimeout(navTimer)
+    if (selectedFundCode.value) {
+      navTimer = setTimeout(() => {
+        void refreshNav()
+      }, 600)
+    }
   }
 )
 
 async function selectFund(candidate: AssetCandidate) {
   form.symbol = candidate.symbol
   form.name = candidate.name
+  selectedFundCode.value = candidate.symbol
   syncAccountCurrency()
   fundSearchFocused.value = false
   await refreshNav()
@@ -84,11 +227,15 @@ function syncAccountCurrency() {
 }
 
 async function refreshNav() {
-  if (!form.symbol.trim()) return
+  const fundCode = selectedFundCode.value || (/^\d{6}$/.test(form.symbol.trim()) ? form.symbol.trim() : '')
+  if (!fundCode) {
+    navError.value = '请先选择基金，或输入 6 位基金代码'
+    return
+  }
   navLoading.value = true
   navError.value = ''
   try {
-    const quote = await fetchLatestFundNav(form.symbol)
+    const quote = await fetchLatestFundNav(fundCode)
     applyNavQuote(quote)
   } catch (error) {
     navError.value = error instanceof Error ? error.message : '净值获取失败'
@@ -97,9 +244,18 @@ async function refreshNav() {
   }
 }
 
+async function ensureLatestNav(): Promise<void> {
+  if (normalizeOptionalNumber(form.currentPrice) !== undefined && form.priceDate) return
+  await refreshNav()
+  if (normalizeOptionalNumber(form.currentPrice) === undefined || !form.priceDate) {
+    throw new Error(navError.value || '基金净值获取失败')
+  }
+}
+
 function applyNavQuote(quote: FundNavQuote) {
   form.symbol = quote.fundCode
   form.name = form.name || quote.name
+  selectedFundCode.value = quote.fundCode
   form.currentPrice = quote.nav
   form.priceDate = quote.navDate
   form.priceProviderId = quote.providerId
@@ -107,6 +263,8 @@ function applyNavQuote(quote: FundNavQuote) {
 
 async function submit() {
   try {
+    await formRef.value?.validate()
+    await ensureLatestNav()
     await store.savePosition({
       accountId: form.accountId,
       assetType: 'fund',
@@ -120,17 +278,66 @@ async function submit() {
       priceDate: form.priceDate || undefined,
       priceProviderId: form.priceProviderId || undefined
     })
-    form.symbol = ''
-    form.name = ''
-    form.quantity = 0
-    form.holdingProfit = undefined
-    form.currentPrice = undefined
-    form.priceDate = ''
-    form.priceProviderId = ''
+    resetCreateForm()
+    showCreateModal.value = false
     await store.refresh()
   } catch {
     // The store owns the user-facing error message.
   }
+}
+
+function resetCreateForm() {
+  form.accountId = fundAccounts.value[0]?.id ?? ''
+  syncAccountCurrency()
+  if (searchTimer) clearTimeout(searchTimer)
+  if (navTimer) clearTimeout(navTimer)
+  form.symbol = ''
+  form.name = ''
+  selectedFundCode.value = ''
+  form.quantity = 0
+  form.holdingProfit = undefined
+  form.currentPrice = undefined
+  form.priceDate = ''
+  form.priceProviderId = ''
+  fundCandidates.value = []
+  fundSearchFocused.value = false
+  fundSearchLoading.value = false
+  navLoading.value = false
+  navError.value = ''
+  formRef.value?.restoreValidation()
+}
+
+async function openCreateModal() {
+  resetCreateForm()
+  showCreateModal.value = true
+  await nextTick()
+  formRef.value?.restoreValidation()
+}
+
+function resetFilters() {
+  selectedAccountFilter.value = ''
+  keywordFilter.value = ''
+}
+
+function rowKey(row: PositionValuation): string {
+  return row.positionId
+}
+
+function requestBatchRemove() {
+  if (checkedRowKeys.value.length === 0) {
+    message.warning('请先选择要删除的表格行')
+    return
+  }
+  showBatchRemoveModal.value = true
+}
+
+async function confirmBatchRemove() {
+  const ids = selectedBatchPositions.value.map((position) => position.positionId)
+  const remainingCount = fundPositions.value.length - ids.length
+  await store.removePositions(ids)
+  checkedRowKeys.value = []
+  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+  showBatchRemoveModal.value = false
 }
 
 function normalizeOptionalNumber(value: unknown): number | undefined {
@@ -145,51 +352,92 @@ function requestRemovePosition(positionId: string, assetName: string) {
 
 async function confirmRemovePosition() {
   if (!pendingRemoval.value) return
+  const remainingCount = fundPositions.value.some((position) => position.positionId === pendingRemoval.value?.id)
+    ? fundPositions.value.length - 1
+    : fundPositions.value.length
   await store.removePosition(pendingRemoval.value.id)
+  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+  checkedRowKeys.value = checkedRowKeys.value.filter((key) => key !== pendingRemoval.value?.id)
   pendingRemoval.value = undefined
 }
 </script>
 
 <template>
   <section class="page">
-    <header class="page-header">
-      <div>
-        <h2>基金</h2>
-        <p>按基金代码获取最新净值，录入份额和持有收益后计算收益率。</p>
-      </div>
-      <button type="button" @click="store.refreshFundPrices">刷新净值</button>
-    </header>
-
-    <div v-if="!canCreate" class="notice">请先创建人民币基金、美元基金或港元基金账户，再录入基金。</div>
-
-    <form class="card grid" @submit.prevent="submit">
-      <div class="form-grid">
-        <label>
-          账户
-          <select v-model="form.accountId" required>
-            <option v-for="account in fundAccounts" :key="account.id" :value="account.id">{{ account.name }}</option>
-          </select>
-        </label>
-        <label>币种<input :value="currencyLabels[form.currency]" disabled /></label>
-        <label class="asset-search-field">
-          基金代码/名称
-          <input
-            v-model="form.symbol"
-            autocomplete="off"
-            required
-            placeholder="输入基金代码或名称"
-            @focus="fundSearchFocused = true"
-            @input="fundSearchFocused = true"
-            @blur="refreshNav"
-            @keydown.escape="fundSearchFocused = false"
+    <NCard :bordered="false" class="query-card">
+      <div class="account-filter-row">
+        <label class="query-field">
+          <span>账户</span>
+          <NSelect
+            v-model:value="selectedAccountFilter"
+            class="account-filter-select"
+            size="small"
+            :options="fundAccountFilterOptions"
           />
+        </label>
+        <label class="query-field">
+          <span>关键词</span>
+          <NInput v-model:value="keywordFilter" class="asset-filter-input" size="small" placeholder="搜索代码/名称" clearable />
+        </label>
+        <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
+        <NButton size="small" type="primary" @click="store.refreshFundPrices">刷新净值</NButton>
+        <NButton class="account-create-button" size="small" type="primary" @click="openCreateModal">新增基金</NButton>
+      </div>
+    </NCard>
+
+    <NCard :bordered="false" class="table-card">
+      <NDataTable
+        :columns="fundColumns"
+        :data="fundPositions"
+        :bordered="false"
+        flex-height
+        :max-height="fundTableMaxHeight"
+        :pagination="tablePagination"
+        :row-key="rowKey"
+        v-model:checked-row-keys="checkedRowKeys"
+      />
+    </NCard>
+
+    <NModal v-model:show="showCreateModal" preset="card" title="新增基金" class="position-create-modal">
+      <NForm
+        ref="formRef"
+        class="account-form create-form"
+        label-placement="left"
+        label-align="right"
+        :label-width="88"
+        :model="form"
+        :rules="rules"
+        @submit.prevent="submit"
+      >
+        <NFormItem label="账户" path="accountId" class="account-name-field">
+          <NSelect v-model:value="form.accountId" size="small" :options="fundAccounts.map((account) => ({ label: account.name, value: account.id }))" />
+        </NFormItem>
+        <NFormItem label="币种" class="account-name-field">
+          <NInput :value="currencyLabels[form.currency]" size="small" disabled />
+        </NFormItem>
+        <NFormItem label="基金名称/代码" path="symbol" class="account-name-field">
+          <div class="asset-search-field modal-field">
+            <NInput
+              v-model:value="form.symbol"
+              size="small"
+              autocomplete="off"
+              placeholder="请输入基金代码或名称搜索"
+              @focus="fundSearchFocused = true"
+              @input="fundSearchFocused = true"
+              @blur="refreshNav"
+              @keydown.escape="fundSearchFocused = false"
+            />
           <span v-if="fundSearchLoading" class="field-hint">正在联网搜索...</span>
+          <NAlert v-if="navError" class="field-alert" :show-icon="false" type="warning">
+            {{ navError }}
+          </NAlert>
           <div v-if="showFundCandidates" class="asset-suggestions">
-            <button
+            <NButton
               v-for="candidate in fundCandidates"
               :key="`${candidate.market}:${candidate.symbol}:${candidate.currency}`"
               class="asset-suggestion"
-              type="button"
+              text
               @mousedown.prevent="selectFund(candidate)"
             >
               <span>
@@ -197,72 +445,54 @@ async function confirmRemovePosition() {
                 {{ candidate.symbol }}
               </span>
               <small>中国基金 · {{ currencyLabels[candidate.currency] }}</small>
-            </button>
+            </NButton>
           </div>
-        </label>
-        <label>基金名称<input v-model="form.name" placeholder="选择基金后自动填入" /></label>
-        <label>持有份额<input v-model.number="form.quantity" min="0" step="0.000001" type="number" /></label>
-        <label>持有收益<input v-model.number="form.holdingProfit" step="0.01" type="number" placeholder="可填负数" /></label>
-        <label>
-          最新净值
-          <input v-model.number="form.currentPrice" min="0" step="0.000001" type="number" />
-        </label>
-        <label>净值日期<input v-model="form.priceDate" placeholder="自动获取" /></label>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="secondary" :disabled="navLoading" @click="refreshNav">
+          </div>
+        </NFormItem>
+        <NFormItem label="持有份额" path="quantity" class="account-name-field">
+          <NInputNumber v-model:value="form.quantity" size="small" :min="0" :step="0.000001" />
+        </NFormItem>
+        <NFormItem label="持有收益" class="account-name-field">
+          <NInputNumber v-model:value="form.holdingProfit" size="small" :step="0.01" placeholder="可填负数" />
+        </NFormItem>
+        <NFormItem label="最新净值" class="account-name-field">
+          <NInput
+            :value="form.currentPrice ? `${form.currentPrice}` : navLoading ? '正在自动获取...' : '选择基金或输入代码后自动获取'"
+            size="small"
+            disabled
+          />
+        </NFormItem>
+        <NFormItem label="净值日期" class="account-name-field">
+          <NInput :value="form.priceDate || '自动获取'" size="small" disabled />
+        </NFormItem>
+      <div class="form-footer">
+        <NButton size="small" @click="showCreateModal = false">取消</NButton>
+        <NButton size="small" :disabled="navLoading" @click="refreshNav">
           {{ navLoading ? '获取中...' : '获取最新净值' }}
-        </button>
-        <button type="submit" :disabled="!canCreate">新增基金</button>
-        <span v-if="navError" class="negative">{{ navError }}</span>
+        </NButton>
+        <NButton size="small" type="primary" :disabled="!canCreate || navLoading" @click="submit">确认新增</NButton>
         <span v-if="store.error" class="negative">{{ store.error }}</span>
       </div>
-    </form>
-
-    <article class="card">
-      <table>
-        <thead>
-          <tr>
-            <th>基金</th>
-            <th>份额</th>
-            <th>最新净值</th>
-            <th>净值日期</th>
-            <th>市值</th>
-            <th>盈亏</th>
-            <th>收益率</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="position in fundPositions" :key="position.positionId">
-            <td>{{ position.assetName }} <span class="muted">{{ position.assetSymbol }}</span></td>
-            <td>{{ position.quantity }}</td>
-            <td>{{ position.currentPrice ?? '缺失' }}</td>
-            <td>{{ position.priceDate ?? '缺失' }}</td>
-            <td>{{ formatCurrency(position.marketValue, position.nativeCurrency) }}</td>
-            <td :class="{ positive: (position.profitLoss ?? 0) >= 0, negative: (position.profitLoss ?? 0) < 0 }">
-              {{ formatCurrency(position.profitLoss, position.nativeCurrency) }}
-            </td>
-            <td>{{ formatPercent(position.profitRate) }}</td>
-            <td>
-              <button class="danger" type="button" @click="requestRemovePosition(position.positionId, position.assetName)">
-                删除
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </article>
+      </NForm>
+    </NModal>
 
     <div v-if="pendingRemoval" class="modal-backdrop" @click.self="pendingRemoval = undefined">
       <section class="modal">
         <h3>删除基金</h3>
         <p>确定要删除「{{ pendingRemoval.name }}」吗？这个操作会从当前基金列表中移除它。</p>
-        <div class="form-actions">
-          <button class="secondary" type="button" @click="pendingRemoval = undefined">取消</button>
-          <button class="danger" type="button" @click="confirmRemovePosition">确认删除</button>
+        <div class="form-actions modal-actions">
+          <NButton size="small" @click="pendingRemoval = undefined">取消</NButton>
+          <NButton size="small" type="error" @click="confirmRemovePosition">确认删除</NButton>
         </div>
       </section>
     </div>
+
+    <NModal v-model:show="showBatchRemoveModal" preset="card" title="批量删除基金" class="account-create-modal">
+      <p class="modal-copy">确定要删除已选择的 {{ selectedBatchPositions.length }} 条基金持仓吗？</p>
+      <div class="form-actions modal-actions">
+        <NButton size="small" @click="showBatchRemoveModal = false">取消</NButton>
+        <NButton size="small" type="error" @click="confirmBatchRemove">确认删除</NButton>
+      </div>
+    </NModal>
   </section>
 </template>

@@ -24,7 +24,7 @@ export const usePortfolioStore = defineStore('portfolio', {
       this.error = ''
       try {
         await exchangeRateService.ensureCoreRates()
-        await priceService.refreshStaleFundPrices()
+        await Promise.allSettled([priceService.refreshStaleFundPrices(), priceService.refreshStaleStockPrices()])
         const [accounts, positionData, exchangeRates, summary] = await Promise.all([
           accountService.list(),
           positionService.list(),
@@ -49,11 +49,21 @@ export const usePortfolioStore = defineStore('portfolio', {
     async removeAccount(id: string) {
       await this.runAndRefresh(() => accountService.remove(id))
     },
+    async removeAccounts(ids: string[]) {
+      await this.runAndRefresh(async () => {
+        await Promise.all(ids.map((id) => accountService.remove(id)))
+      })
+    },
     async savePosition(input: PositionInput, id?: string) {
       await this.runAndRefresh(() => positionService.save(input, id))
     },
     async removePosition(id: string) {
       await this.runAndRefresh(() => positionService.remove(id))
+    },
+    async removePositions(ids: string[]) {
+      await this.runAndRefresh(async () => {
+        await Promise.all(ids.map((id) => positionService.remove(id)))
+      })
     },
     async refreshFundPrices() {
       await this.runAndRefresh(() => priceService.refreshAllFundPrices())

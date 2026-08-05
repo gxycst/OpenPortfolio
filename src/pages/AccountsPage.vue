@@ -1,23 +1,31 @@
 <script setup lang="ts">
-import type { DataTableColumns } from 'naive-ui'
-import { NButton, NCard, NDataTable, NForm, NFormItem, NInput, NPopconfirm, NRadioButton, NRadioGroup, NSpace } from 'naive-ui'
-import { h } from 'vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import type { DataTableColumns, DataTableRowKey, FormInst, FormRules } from 'naive-ui'
+import {
+  NButton,
+  NCard,
+  NDataTable,
+  NForm,
+  NFormItem,
+  NInput,
+  NModal,
+  NPopconfirm,
+  NRadio,
+  NRadioGroup,
+  NSelect,
+  NSpace,
+  useMessage
+} from 'naive-ui'
+import { h, nextTick } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolioStore'
-import type { AccountType, CurrencyCode, MarketCode } from '@/types/domain'
-import { accountTypeLabels } from '@/utils/accountType'
+import type { Account, AccountType, CurrencyCode } from '@/types/domain'
+import { currencyForAccountType } from '@/utils/accountType'
+import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
 
 const store = usePortfolioStore()
-const marketLabels: Record<MarketCode, string> = {
-  CN: '中国',
-  US: '美国',
-  HK: '香港',
-  JP: '日本',
-  EU: '欧洲',
-  FUND_CN: '中国基金',
-  CASH: '现金',
-  OTHER: '其他'
-}
+const message = useMessage()
+type AccountCategory = 'stock' | 'fund' | 'cash'
+
 const currencyLabels: Record<CurrencyCode, string> = {
   CNY: '人民币',
   USD: '美元',
@@ -27,31 +35,58 @@ const currencyLabels: Record<CurrencyCode, string> = {
   GBP: '英镑',
   OTHER: '其他币种'
 }
-const accountTypeOptions: AccountType[] = [
-  'cn_stock',
-  'us_stock',
-  'hk_stock',
-  'cny_fund',
-  'usd_fund',
-  'hkd_fund',
-  'cny_cash',
-  'usd_cash',
-  'hkd_cash'
+const categoryLabels: Record<AccountCategory, string> = {
+  stock: '股票',
+  fund: '基金',
+  cash: '现金'
+}
+const categoryOptions: Array<{ label: string; value: AccountCategory }> = [
+  { label: categoryLabels.stock, value: 'stock' },
+  { label: categoryLabels.fund, value: 'fund' },
+  { label: categoryLabels.cash, value: 'cash' }
+]
+const currencyOptions: Array<{ label: string; value: CurrencyCode }> = [
+  { label: '人民币', value: 'CNY' },
+  { label: '美元', value: 'USD' },
+  { label: '港元', value: 'HKD' }
 ]
 const form = reactive({
   name: '',
-  type: 'cn_stock' as AccountType
+  category: 'stock' as AccountCategory,
+  currency: 'CNY' as CurrencyCode
 })
-const selectedType = ref<AccountType | ''>('')
+const formRef = ref<FormInst | null>(null)
+const showCreateModal = ref(false)
+const showBatchRemoveModal = ref(false)
+const selectedCategory = ref<AccountCategory | ''>('')
+const selectedCurrency = ref<CurrencyCode | ''>('')
+const checkedRowKeys = ref<DataTableRowKey[]>([])
 const filteredAccounts = computed(() =>
-  selectedType.value ? store.accounts.filter((account) => account.type === selectedType.value) : store.accounts
+  store.accounts.filter((account) => {
+    const categoryMatches = selectedCategory.value ? categoryForAccountType(account.type) === selectedCategory.value : true
+    const currencyMatches = selectedCurrency.value ? account.defaultCurrency === selectedCurrency.value : true
+    return categoryMatches && currencyMatches
+  })
 )
-const typeRadioOptions = accountTypeOptions.map((type) => ({
-  label: accountTypeLabels[type],
-  value: type
-}))
-const filterOptions = [{ label: '全部', value: '' }, ...typeRadioOptions]
-const columns: DataTableColumns<(typeof store.accounts)[number]> = [
+const categoryFilterOptions: Array<{ label: string; value: AccountCategory | '' }> = [
+  { label: '全部', value: '' },
+  ...categoryOptions
+]
+const currencyFilterOptions: Array<{ label: string; value: CurrencyCode | '' }> = [
+  { label: '全部', value: '' },
+  ...currencyOptions
+]
+const tableMaxHeight = 'calc(100vh - 278px)'
+const tablePage = ref(1)
+const tablePageSize = ref(10)
+const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
+const selectedBatchAccounts = computed(() =>
+  filteredAccounts.value.filter((account) => checkedRowKeys.value.includes(account.id))
+)
+const columns: DataTableColumns<Account> = [
+  {
+    type: 'selection'
+  },
   {
     title: '名称',
     key: 'name'
@@ -59,7 +94,7 @@ const columns: DataTableColumns<(typeof store.accounts)[number]> = [
   {
     title: '类型',
     key: 'type',
-    render: (row) => accountTypeLabels[row.type]
+    render: (row) => categoryLabels[categoryForAccountType(row.type)]
   },
   {
     title: '币种',
@@ -67,7 +102,7 @@ const columns: DataTableColumns<(typeof store.accounts)[number]> = [
     render: (row) => currencyLabels[row.defaultCurrency]
   },
   {
-    title: '',
+    title: '操作',
     key: 'actions',
     width: 96,
     render: (row) =>
@@ -76,7 +111,7 @@ const columns: DataTableColumns<(typeof store.accounts)[number]> = [
         {
           positiveText: '确认删除',
           negativeText: '取消',
-          onPositiveClick: () => store.removeAccount(row.id)
+          onPositiveClick: () => removeSingleAccount(row.id)
         },
         {
           trigger: () =>
@@ -94,63 +129,190 @@ const columns: DataTableColumns<(typeof store.accounts)[number]> = [
       )
   }
 ]
+const rules: FormRules = {
+  name: {
+    required: true,
+    message: '请输入账户名称',
+    trigger: ['input', 'blur']
+  },
+  category: {
+    required: true,
+    message: '请选择类型',
+    trigger: ['change']
+  },
+  currency: {
+    required: true,
+    message: '请选择币种',
+    trigger: ['change']
+  }
+}
 
 onMounted(() => store.refresh())
 
+watch([selectedCategory, selectedCurrency], () => {
+  tablePage.value = 1
+  checkedRowKeys.value = []
+})
+
 async function submit() {
-  await store.saveAccount({ ...form })
+  await formRef.value?.validate()
+  await store.saveAccount({
+    name: form.name,
+    type: accountTypeFromParts(form.category, form.currency)
+  })
+  resetCreateForm()
+  showCreateModal.value = false
+}
+
+function resetCreateForm() {
   form.name = ''
+  form.category = 'stock'
+  form.currency = 'CNY'
+  formRef.value?.restoreValidation()
+}
+
+async function openCreateModal() {
+  resetCreateForm()
+  showCreateModal.value = true
+  await nextTick()
+  formRef.value?.restoreValidation()
 }
 
 function resetFilters() {
-  selectedType.value = ''
+  selectedCategory.value = ''
+  selectedCurrency.value = ''
+}
+
+function rowKey(row: Account): string {
+  return row.id
+}
+
+function requestBatchRemove() {
+  if (checkedRowKeys.value.length === 0) {
+    message.warning('请先选择要删除的表格行')
+    return
+  }
+  showBatchRemoveModal.value = true
+}
+
+async function confirmBatchRemove() {
+  const ids = selectedBatchAccounts.value.map((account) => account.id)
+  const remainingCount = filteredAccounts.value.length - ids.length
+  await store.removeAccounts(ids)
+  checkedRowKeys.value = []
+  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+  showBatchRemoveModal.value = false
+}
+
+async function removeSingleAccount(id: string) {
+  const remainingCount = filteredAccounts.value.some((account) => account.id === id)
+    ? filteredAccounts.value.length - 1
+    : filteredAccounts.value.length
+  await store.removeAccount(id)
+  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+  checkedRowKeys.value = checkedRowKeys.value.filter((key) => key !== id)
+}
+
+function accountTypeFromParts(category: AccountCategory, currency: CurrencyCode): AccountType {
+  if (category === 'stock') {
+    if (currency === 'USD') return 'us_stock'
+    if (currency === 'HKD') return 'hk_stock'
+    return 'cn_stock'
+  }
+  if (category === 'fund') {
+    if (currency === 'USD') return 'usd_fund'
+    if (currency === 'HKD') return 'hkd_fund'
+    return 'cny_fund'
+  }
+  if (currency === 'USD') return 'usd_cash'
+  if (currency === 'HKD') return 'hkd_cash'
+  return 'cny_cash'
+}
+
+function categoryForAccountType(type: AccountType): AccountCategory {
+  if (type.includes('fund') || type === 'fund_platform') return 'fund'
+  if (type.includes('cash') || type === 'bank' || type === 'cash') return 'cash'
+  return 'stock'
 }
 </script>
 
 <template>
   <section class="page">
-    <header class="page-header">
-      <div>
-        <h2>账户</h2>
-        <p>创建股票、基金和现金账户；币种会根据账户类型自动确定。</p>
+    <NCard :bordered="false" class="query-card">
+      <div class="account-filter-row">
+        <label class="query-field">
+          <span>类型</span>
+          <NSelect v-model:value="selectedCategory" class="account-filter-select" size="small" :options="categoryFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>币种</span>
+          <NSelect v-model:value="selectedCurrency" class="account-filter-select" size="small" :options="currencyFilterOptions" />
+        </label>
+        <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
+        <NButton class="account-create-button" size="small" type="primary" @click="openCreateModal">新增账户</NButton>
       </div>
-    </header>
+    </NCard>
 
-    <NCard :bordered="false">
-      <NForm class="account-form" label-placement="left" :show-feedback="false" @submit.prevent="submit">
-        <NFormItem label="账户名称" class="name-field">
+    <NCard :bordered="false" class="table-card">
+      <NDataTable
+        :columns="columns"
+        :data="filteredAccounts"
+        :bordered="false"
+        flex-height
+        :max-height="tableMaxHeight"
+        :pagination="tablePagination"
+        :row-key="rowKey"
+        v-model:checked-row-keys="checkedRowKeys"
+      />
+    </NCard>
+
+    <NModal v-model:show="showCreateModal" preset="card" title="新增账户" class="account-create-modal">
+      <NForm
+        ref="formRef"
+        class="account-form create-form"
+        label-placement="left"
+        label-align="right"
+        :label-width="88"
+        :model="form"
+        :rules="rules"
+        @submit.prevent="submit"
+      >
+        <NFormItem label="账户名称" path="name" class="account-name-field">
           <NInput v-model:value="form.name" size="small" placeholder="例如 嘉信理财" />
         </NFormItem>
-        <NFormItem label="类型" class="type-field">
-          <NRadioGroup v-model:value="form.type" name="account-type" size="small">
+        <NFormItem label="类型" path="category" class="account-radio-field">
+          <NRadioGroup v-model:value="form.category" name="account-category" size="small">
             <NSpace :size="6" align="center">
-              <NRadioButton v-for="option in typeRadioOptions" :key="option.value" :value="option.value">
+              <NRadio v-for="option in categoryOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
-              </NRadioButton>
+              </NRadio>
+            </NSpace>
+          </NRadioGroup>
+        </NFormItem>
+        <NFormItem label="币种" path="currency" class="account-radio-field">
+          <NRadioGroup v-model:value="form.currency" name="account-currency" size="small">
+            <NSpace :size="6" align="center">
+              <NRadio v-for="option in currencyOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </NRadio>
             </NSpace>
           </NRadioGroup>
         </NFormItem>
         <div class="form-footer">
           <span v-if="store.error" class="negative">{{ store.error }}</span>
-          <NButton size="small" type="primary" @click="submit">新增账户</NButton>
+          <NButton size="small" @click="showCreateModal = false">取消</NButton>
+          <NButton size="small" type="primary" @click="submit">确认新增</NButton>
         </div>
       </NForm>
-    </NCard>
+    </NModal>
 
-    <NCard :bordered="false">
-      <NSpace vertical :size="16">
-        <NFormItem class="filter-inline" label="类型筛选" label-placement="left" :show-feedback="false">
-          <NRadioGroup v-model:value="selectedType" name="account-type-filter" size="small">
-            <NSpace :size="6" align="center">
-              <NRadioButton v-for="option in filterOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </NRadioButton>
-              <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
-            </NSpace>
-          </NRadioGroup>
-        </NFormItem>
-        <NDataTable :columns="columns" :data="filteredAccounts" :bordered="false" />
-      </NSpace>
-    </NCard>
+    <NModal v-model:show="showBatchRemoveModal" preset="card" title="批量删除账户" class="account-create-modal">
+      <p class="modal-copy">确定要删除已选择的 {{ selectedBatchAccounts.length }} 个账户吗？</p>
+      <div class="form-actions modal-actions">
+        <NButton size="small" @click="showBatchRemoveModal = false">取消</NButton>
+        <NButton size="small" type="error" @click="confirmBatchRemove">确认删除</NButton>
+      </div>
+    </NModal>
   </section>
 </template>

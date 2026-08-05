@@ -1,11 +1,16 @@
 <script setup lang="ts">
+import type { DataTableColumns, DataTableRowKey, FormInst, FormRules } from 'naive-ui'
+import { NButton, NCard, NDataTable, NForm, NFormItem, NInputNumber, NModal, NPopconfirm, NSelect, useMessage } from 'naive-ui'
+import { h } from 'vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolioStore'
-import type { Account, AccountType, CurrencyCode } from '@/types/domain'
+import type { Account, AccountType, CurrencyCode, PositionValuation } from '@/types/domain'
 import { accountMatchesTypes, cashAccountTypes, currencyForAccountType } from '@/utils/accountType'
 import { formatCurrency } from '@/utils/format'
+import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
 
 const store = usePortfolioStore()
+const message = useMessage()
 const currencyLabels: Record<CurrencyCode, string> = {
   CNY: '人民币',
   USD: '美元',
@@ -30,15 +35,86 @@ const form = reactive({
   currency: 'CNY' as 'CNY' | 'USD' | 'HKD',
   balance: 0
 })
-const pendingRemoval = ref<{ id: string; name: string } | undefined>()
+const formRef = ref<FormInst | null>(null)
+const checkedRowKeys = ref<DataTableRowKey[]>([])
+const showBatchRemoveModal = ref(false)
+const currencyOptions = [
+  { label: '人民币', value: 'CNY' },
+  { label: '美元', value: 'USD' },
+  { label: '港币', value: 'HKD' }
+]
 
 const cashAccounts = computed(() => store.accounts.filter((account) => accountMatchesTypes(account, cashAccountTypes)))
 const cashPositions = computed(() => store.summary?.positions.filter((item) => item.assetType === 'cash') ?? [])
+const tableMaxHeight = 'calc(100vh - 278px)'
+const tablePage = ref(1)
+const tablePageSize = ref(10)
+const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
+const selectedBatchPositions = computed(() =>
+  cashPositions.value.filter((position) => checkedRowKeys.value.includes(position.positionId))
+)
+const cashColumns: DataTableColumns<PositionValuation> = [
+  {
+    type: 'selection'
+  },
+  {
+    title: '币种',
+    key: 'nativeCurrency',
+    render: (row) => currencyLabels[row.nativeCurrency]
+  },
+  {
+    title: '余额',
+    key: 'marketValue',
+    render: (row) => formatCurrency(row.marketValue, row.nativeCurrency)
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 96,
+    render: (row) =>
+      h(
+        NPopconfirm,
+        {
+          positiveText: '确认删除',
+          negativeText: '取消',
+          onPositiveClick: () => removeSinglePosition(row.positionId)
+        },
+        {
+          trigger: () =>
+            h(
+              NButton,
+              {
+                size: 'small',
+                type: 'error',
+                secondary: true
+              },
+              { default: () => '删除' }
+            ),
+          default: () => `确定要删除「${row.assetName}」吗？`
+        }
+      )
+  }
+]
+const rules: FormRules = {
+  currency: {
+    required: true,
+    message: '请选择币种',
+    trigger: ['change']
+  },
+  balance: {
+    required: true,
+    type: 'number',
+    validator: (_rule, value: number) => Number.isFinite(value) && value >= 0,
+    message: '请输入有效余额',
+    trigger: ['input', 'blur']
+  }
+}
 
 onMounted(() => store.refresh())
 
 async function submit() {
   try {
+    await formRef.value?.validate()
     const account = await ensureCashAccount(form.currency)
     await store.savePosition({
       accountId: account.id,
@@ -63,76 +139,82 @@ async function ensureCashAccount(currency: 'CNY' | 'USD' | 'HKD'): Promise<Accou
   return store.saveAccount({ name: `${currencyLabels[currency]}现金`, type })
 }
 
-function requestRemovePosition(positionId: string, assetName: string) {
-  pendingRemoval.value = { id: positionId, name: assetName }
+function rowKey(row: PositionValuation): string {
+  return row.positionId
 }
 
-async function confirmRemovePosition() {
-  if (!pendingRemoval.value) return
-  await store.removePosition(pendingRemoval.value.id)
-  pendingRemoval.value = undefined
+function requestBatchRemove() {
+  if (checkedRowKeys.value.length === 0) {
+    message.warning('请先选择要删除的表格行')
+    return
+  }
+  showBatchRemoveModal.value = true
 }
+
+async function removeSinglePosition(id: string) {
+  const remainingCount = cashPositions.value.some((position) => position.positionId === id)
+    ? cashPositions.value.length - 1
+    : cashPositions.value.length
+  await store.removePosition(id)
+  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+  checkedRowKeys.value = checkedRowKeys.value.filter((key) => key !== id)
+}
+
+async function confirmBatchRemove() {
+  const ids = selectedBatchPositions.value.map((position) => position.positionId)
+  const remainingCount = cashPositions.value.length - ids.length
+  await store.removePositions(ids)
+  checkedRowKeys.value = []
+  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+  showBatchRemoveModal.value = false
+}
+
 </script>
 
 <template>
   <section class="page">
-    <header class="page-header">
-      <div>
-        <h2>现金</h2>
-        <p>记录人民币、美元和港币现金余额。</p>
-      </div>
-    </header>
-
-    <form class="card grid" @submit.prevent="submit">
-      <div class="form-grid">
-        <label>
-          币种
-          <select v-model="form.currency">
-            <option value="CNY">人民币</option>
-            <option value="USD">美元</option>
-            <option value="HKD">港币</option>
-          </select>
-        </label>
-        <label>余额<input v-model.number="form.balance" min="0" step="0.01" type="number" /></label>
-      </div>
-      <div class="form-actions">
-        <button type="submit">保存现金余额</button>
+    <NCard :bordered="false" class="query-card">
+      <NForm
+        ref="formRef"
+        class="cash-form"
+        label-placement="left"
+        label-align="right"
+        :label-width="56"
+        :model="form"
+        :rules="rules"
+        @submit.prevent="submit"
+      >
+        <NFormItem label="币种" path="currency">
+          <NSelect v-model:value="form.currency" size="small" :options="currencyOptions" />
+        </NFormItem>
+        <NFormItem label="余额" path="balance">
+          <NInputNumber v-model:value="form.balance" size="small" :min="0" :step="0.01" />
+        </NFormItem>
+        <NButton size="small" type="primary" @click="submit">保存现金余额</NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
         <span v-if="store.error" class="negative">{{ store.error }}</span>
+      </NForm>
+    </NCard>
+
+    <NCard :bordered="false" class="table-card">
+      <NDataTable
+        :columns="cashColumns"
+        :data="cashPositions"
+        :bordered="false"
+        flex-height
+        :max-height="tableMaxHeight"
+        :pagination="tablePagination"
+        :row-key="rowKey"
+        v-model:checked-row-keys="checkedRowKeys"
+      />
+    </NCard>
+
+    <NModal v-model:show="showBatchRemoveModal" preset="card" title="批量删除现金" class="account-create-modal">
+      <p class="modal-copy">确定要删除已选择的 {{ selectedBatchPositions.length }} 条现金记录吗？</p>
+      <div class="form-actions modal-actions">
+        <NButton size="small" @click="showBatchRemoveModal = false">取消</NButton>
+        <NButton size="small" type="error" @click="confirmBatchRemove">确认删除</NButton>
       </div>
-    </form>
-
-    <article class="card">
-      <table>
-        <thead>
-          <tr>
-            <th>币种</th>
-            <th>余额</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="position in cashPositions" :key="position.positionId">
-            <td>{{ currencyLabels[position.nativeCurrency] }}</td>
-            <td>{{ formatCurrency(position.marketValue, position.nativeCurrency) }}</td>
-            <td>
-              <button class="danger" type="button" @click="requestRemovePosition(position.positionId, position.assetName)">
-                删除
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </article>
-
-    <div v-if="pendingRemoval" class="modal-backdrop" @click.self="pendingRemoval = undefined">
-      <section class="modal">
-        <h3>删除现金</h3>
-        <p>确定要删除「{{ pendingRemoval.name }}」吗？这个操作会从现金列表中移除它。</p>
-        <div class="form-actions">
-          <button class="secondary" type="button" @click="pendingRemoval = undefined">取消</button>
-          <button class="danger" type="button" @click="confirmRemovePosition">确认删除</button>
-        </div>
-      </section>
-    </div>
+    </NModal>
   </section>
 </template>

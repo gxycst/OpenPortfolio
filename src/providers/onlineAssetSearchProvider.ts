@@ -1,4 +1,5 @@
 import type { AssetCandidate } from '@/providers/manualAssetCatalog'
+import { searchTencentStocks } from '@/providers/stocks/tencentStockSearchProvider'
 
 interface YahooFinanceSearchResponse {
   quotes?: Array<{
@@ -18,13 +19,15 @@ export async function searchOnlineAssets(query: string): Promise<AssetCandidate[
   const normalizedQuery = query.trim()
   if (normalizedQuery.length < 2) return []
 
-  const [stocks, funds] = await Promise.allSettled([
+  const [tencentStocks, yahooStocks, funds] = await Promise.allSettled([
+    searchTencentStocks(normalizedQuery),
     searchYahooFinance(normalizedQuery),
     searchEastmoneyFunds(normalizedQuery)
   ])
 
   return [
-    ...(stocks.status === 'fulfilled' ? stocks.value : []),
+    ...(tencentStocks.status === 'fulfilled' ? tencentStocks.value : []),
+    ...(yahooStocks.status === 'fulfilled' ? yahooStocks.value : []),
     ...(funds.status === 'fulfilled' ? funds.value : [])
   ]
 }
