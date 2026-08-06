@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import type { DataTableColumns, DataTableRowKey, FormInst, FormRules } from 'naive-ui'
-import { NButton, NCard, NDataTable, NForm, NFormItem, NInputNumber, NModal, NPopconfirm, NSelect, useMessage } from 'naive-ui'
-import { h } from 'vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { NButton, NCard, NDataTable, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, useMessage } from 'naive-ui'
+import { h, nextTick } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolioStore'
-import type { Account, AccountType, CurrencyCode, PositionValuation } from '@/types/domain'
-import { accountMatchesTypes, cashAccountTypes, currencyForAccountType } from '@/utils/accountType'
+import type { Account, CurrencyCode, PositionValuation } from '@/types/domain'
+import { currencyForAccountType } from '@/utils/accountType'
 import { formatCurrency } from '@/utils/format'
 import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
 
 const store = usePortfolioStore()
 const message = useMessage()
+type CashCurrency = 'CNY' | 'USD' | 'HKD'
 const currencyLabels: Record<CurrencyCode, string> = {
   CNY: '人民币',
   USD: '美元',
@@ -20,32 +21,50 @@ const currencyLabels: Record<CurrencyCode, string> = {
   GBP: '英镑',
   OTHER: '其他币种'
 }
-const cashTypeByCurrency: Record<'CNY' | 'USD' | 'HKD', AccountType> = {
-  CNY: 'cny_cash',
-  USD: 'usd_cash',
-  HKD: 'hkd_cash'
-}
-const cashSymbolByCurrency: Record<'CNY' | 'USD' | 'HKD', string> = {
+const cashSymbolByCurrency: Record<CashCurrency, string> = {
   CNY: 'CASH_CNY',
   USD: 'CASH_USD',
   HKD: 'CASH_HKD'
 }
 
 const form = reactive({
-  currency: 'CNY' as 'CNY' | 'USD' | 'HKD',
+  accountId: '',
   balance: 0
 })
 const formRef = ref<FormInst | null>(null)
 const checkedRowKeys = ref<DataTableRowKey[]>([])
+const showCreateModal = ref(false)
 const showBatchRemoveModal = ref(false)
-const currencyOptions = [
+const selectedAccount = ref('')
+const selectedCurrency = ref<CurrencyCode | ''>('')
+const currencyOptions: Array<{ label: string; value: CashCurrency }> = [
   { label: '人民币', value: 'CNY' },
   { label: '美元', value: 'USD' },
   { label: '港币', value: 'HKD' }
 ]
+const currencyFilterOptions: Array<{ label: string; value: CurrencyCode | '' }> = [
+  { label: '全部', value: '' },
+  ...currencyOptions
+]
 
-const cashAccounts = computed(() => store.accounts.filter((account) => accountMatchesTypes(account, cashAccountTypes)))
-const cashPositions = computed(() => store.summary?.positions.filter((item) => item.assetType === 'cash') ?? [])
+const accountNameById = computed(() => new Map(store.accounts.map((account) => [account.id, account.name])))
+const accountFilterOptions = computed(() => [
+  { label: '全部', value: '' },
+  ...store.accounts.map((account) => ({ label: account.name, value: account.id }))
+])
+const accountOptions = computed(() => store.accounts.map((account) => ({ label: account.name, value: account.id })))
+const formAccount = computed(() => store.accounts.find((account) => account.id === form.accountId))
+const formCurrency = computed(() => cashCurrencyForAccount(formAccount.value))
+const canCreate = computed(() => store.accounts.length > 0)
+const cashTableEmptyText = computed(() =>
+  canCreate.value ? '暂无现金记录' : '请先创建账户，再录入现金余额。'
+)
+const cashPositions = computed(() =>
+  (store.summary?.positions ?? [])
+    .filter((item) => item.assetType === 'cash')
+    .filter((item) => (selectedAccount.value ? item.accountId === selectedAccount.value : true))
+    .filter((item) => (selectedCurrency.value ? item.nativeCurrency === selectedCurrency.value : true))
+)
 const tableMaxHeight = 'calc(100vh - 278px)'
 const tablePage = ref(1)
 const tablePageSize = ref(10)
@@ -56,6 +75,11 @@ const selectedBatchPositions = computed(() =>
 const cashColumns: DataTableColumns<PositionValuation> = [
   {
     type: 'selection'
+  },
+  {
+    title: '账户',
+    key: 'accountId',
+    render: (row) => accountNameById.value.get(row.accountId) ?? '未知账户'
   },
   {
     title: '币种',
@@ -96,9 +120,9 @@ const cashColumns: DataTableColumns<PositionValuation> = [
   }
 ]
 const rules: FormRules = {
-  currency: {
+  accountId: {
     required: true,
-    message: '请选择币种',
+    message: '请选择账户',
     trigger: ['change']
   },
   balance: {
@@ -110,33 +134,59 @@ const rules: FormRules = {
   }
 }
 
-onMounted(() => store.refresh())
+onMounted(async () => {
+  await store.refresh()
+  form.accountId = store.accounts[0]?.id ?? ''
+})
+
+watch([selectedAccount, selectedCurrency], () => {
+  tablePage.value = 1
+  checkedRowKeys.value = []
+})
 
 async function submit() {
   try {
     await formRef.value?.validate()
-    const account = await ensureCashAccount(form.currency)
+    const currency = formCurrency.value
     await store.savePosition({
-      accountId: account.id,
+      accountId: form.accountId,
       assetType: 'cash',
-      symbol: cashSymbolByCurrency[form.currency],
-      name: `${currencyLabels[form.currency]}现金`,
+      symbol: cashSymbolByCurrency[currency],
+      name: `${currencyLabels[currency]}现金`,
       market: 'CASH',
-      currency: form.currency,
+      currency,
       quantity: Number(form.balance),
       averageCost: 1
     })
-    form.balance = 0
+    resetCreateForm()
+    showCreateModal.value = false
   } catch {
     // The store owns the user-facing error message.
   }
 }
 
-async function ensureCashAccount(currency: 'CNY' | 'USD' | 'HKD'): Promise<Account> {
-  const existing = cashAccounts.value.find((account) => currencyForAccountType(account.type) === currency)
-  if (existing) return existing
-  const type = cashTypeByCurrency[currency]
-  return store.saveAccount({ name: `${currencyLabels[currency]}现金`, type })
+function resetCreateForm() {
+  form.accountId = store.accounts[0]?.id ?? ''
+  form.balance = 0
+  formRef.value?.restoreValidation()
+}
+
+async function openCreateModal() {
+  resetCreateForm()
+  showCreateModal.value = true
+  await nextTick()
+  formRef.value?.restoreValidation()
+}
+
+function resetFilters() {
+  selectedAccount.value = ''
+  selectedCurrency.value = ''
+}
+
+function cashCurrencyForAccount(account: Account | undefined): CashCurrency {
+  const currency = account ? currencyForAccountType(account.type) : 'CNY'
+  if (currency === 'USD' || currency === 'HKD') return currency
+  return 'CNY'
 }
 
 function rowKey(row: PositionValuation): string {
@@ -174,9 +224,44 @@ async function confirmBatchRemove() {
 <template>
   <section class="page">
     <NCard :bordered="false" class="query-card">
+      <div class="account-filter-row">
+        <label class="query-field">
+          <span>账户</span>
+          <NSelect v-model:value="selectedAccount" class="account-filter-select" size="small" :options="accountFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>币种</span>
+          <NSelect v-model:value="selectedCurrency" class="account-filter-select" size="small" :options="currencyFilterOptions" />
+        </label>
+        <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
+        <NButton class="account-create-button" size="small" type="primary" :disabled="!canCreate" @click="openCreateModal">新增现金</NButton>
+      </div>
+    </NCard>
+
+    <NCard :bordered="false" class="table-card">
+      <NDataTable
+        :columns="cashColumns"
+        :data="cashPositions"
+        bordered
+        flex-height
+        :max-height="tableMaxHeight"
+        :pagination="tablePagination"
+        :row-key="rowKey"
+        v-model:checked-row-keys="checkedRowKeys"
+      >
+        <template #empty>
+          <div class="table-empty-state">
+            <NEmpty size="small" :description="cashTableEmptyText" />
+          </div>
+        </template>
+      </NDataTable>
+    </NCard>
+
+    <NModal v-model:show="showCreateModal" preset="card" title="新增现金" class="account-create-modal">
       <NForm
         ref="formRef"
-        class="cash-form"
+        class="account-form create-form"
         label-placement="left"
         label-align="right"
         :label-width="56"
@@ -184,30 +269,22 @@ async function confirmBatchRemove() {
         :rules="rules"
         @submit.prevent="submit"
       >
-        <NFormItem label="币种" path="currency">
-          <NSelect v-model:value="form.currency" size="small" :options="currencyOptions" />
+        <NFormItem label="账户" path="accountId" class="account-name-field">
+          <NSelect v-model:value="form.accountId" size="small" :options="accountOptions" />
         </NFormItem>
-        <NFormItem label="余额" path="balance">
+        <NFormItem label="币种" class="account-name-field">
+          <NInput :value="currencyLabels[formCurrency]" size="small" disabled />
+        </NFormItem>
+        <NFormItem label="余额" path="balance" class="account-name-field">
           <NInputNumber v-model:value="form.balance" size="small" :min="0" :step="0.01" />
         </NFormItem>
-        <NButton size="small" type="primary" @click="submit">保存现金余额</NButton>
-        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
-        <span v-if="store.error" class="negative">{{ store.error }}</span>
+        <div class="form-footer">
+          <span v-if="store.error" class="negative">{{ store.error }}</span>
+          <NButton size="small" @click="showCreateModal = false">取消</NButton>
+          <NButton size="small" type="primary" :disabled="!canCreate" @click="submit">确认新增</NButton>
+        </div>
       </NForm>
-    </NCard>
-
-    <NCard :bordered="false" class="table-card">
-      <NDataTable
-        :columns="cashColumns"
-        :data="cashPositions"
-        :bordered="false"
-        flex-height
-        :max-height="tableMaxHeight"
-        :pagination="tablePagination"
-        :row-key="rowKey"
-        v-model:checked-row-keys="checkedRowKeys"
-      />
-    </NCard>
+    </NModal>
 
     <NModal v-model:show="showBatchRemoveModal" preset="card" title="批量删除现金" class="account-create-modal">
       <p class="modal-copy">确定要删除已选择的 {{ selectedBatchPositions.length }} 条现金记录吗？</p>

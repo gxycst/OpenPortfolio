@@ -29,14 +29,13 @@ export function searchAssetCandidates(query: string, existingAssets: Asset[], li
 
 export async function searchAssetCandidatesOnline(
   query: string,
-  existingAssets: Asset[],
+  _existingAssets: Asset[],
   limit = 10
 ): Promise<AssetCandidate[]> {
-  const localResults = searchAssetCandidates(query, existingAssets, limit)
   const onlineResults = await searchOnlineAssets(query).catch(() => [])
   const deduped = new Map<string, AssetCandidate>()
 
-  for (const candidate of [...localResults, ...onlineResults]) {
+  for (const candidate of onlineResults) {
     const key = `${candidate.market}:${candidate.symbol}:${candidate.currency}`
     if (!deduped.has(key)) deduped.set(key, candidate)
   }

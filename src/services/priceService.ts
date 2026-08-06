@@ -4,7 +4,7 @@ import { assetRepository } from '@/repositories/assetRepository'
 import { priceRepository } from '@/repositories/priceRepository'
 import type { Asset, MarketCode, Price } from '@/types/domain'
 
-const FUND_NAV_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000
+const FUND_NAV_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
 const STOCK_QUOTE_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 
 export const priceService = {
@@ -21,6 +21,13 @@ export const priceService = {
   refreshAllFundPrices: async () => {
     const assets = await assetRepository.list()
     const funds = assets.filter((asset) => asset.assetType === 'fund')
+    await Promise.allSettled(funds.map((asset) => priceService.refreshFundPrice(asset)))
+  },
+  refreshFundPricesByAssetIds: async (assetIds: string[]) => {
+    const idSet = new Set(assetIds)
+    if (idSet.size === 0) return
+    const assets = await assetRepository.list()
+    const funds = assets.filter((asset) => asset.assetType === 'fund' && idSet.has(asset.id))
     await Promise.allSettled(funds.map((asset) => priceService.refreshFundPrice(asset)))
   },
   fetchStockQuoteForInput: (symbol: string, market: MarketCode) => fetchTencentStockQuote(symbol, market),

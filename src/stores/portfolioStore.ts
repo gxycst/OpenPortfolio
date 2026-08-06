@@ -68,6 +68,9 @@ export const usePortfolioStore = defineStore('portfolio', {
     async refreshFundPrices() {
       await this.runAndRefresh(() => priceService.refreshAllFundPrices())
     },
+    async refreshFundPricesByAssetIds(assetIds: string[]) {
+      await this.runAndRefresh(() => priceService.refreshFundPricesByAssetIds(assetIds))
+    },
     exportBackup: () => backupService.exportBackup(),
     async importBackup(input: unknown) {
       await this.runAndRefresh(() => backupService.importBackup(input))

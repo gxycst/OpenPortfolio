@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { DataTableColumns, DataTableRowKey, FormInst, FormRules } from 'naive-ui'
-import { NAlert, NButton, NCard, NDataTable, NForm, NFormItem, NInput, NInputNumber, NModal, NSelect, useMessage } from 'naive-ui'
+import { NAlert, NButton, NCard, NDataTable, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NSelect, useMessage } from 'naive-ui'
 import { h, nextTick } from 'vue'
 import { fetchLatestFundNav, type FundNavQuote } from '@/providers/funds/eastmoneyFundNavProvider'
 import type { AssetCandidate } from '@/providers/manualAssetCatalog'
@@ -9,11 +9,12 @@ import { searchAssetCandidatesOnline } from '@/services/assetSearchService'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import type { CurrencyCode, PositionValuation } from '@/types/domain'
 import { accountMatchesTypes, currencyForAccountType, fundAccountTypes } from '@/utils/accountType'
-import { formatCurrency, formatPercent } from '@/utils/format'
+import { formatCurrency, formatNav, formatPercent } from '@/utils/format'
 import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
 
 const store = usePortfolioStore()
 const message = useMessage()
+const FUND_VISIBLE_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
 const currencyLabels: Record<CurrencyCode, string> = {
   CNY: '人民币',
   USD: '美元',
@@ -72,6 +73,9 @@ const fundPositions = computed(() =>
 const selectedBatchPositions = computed(() =>
   fundPositions.value.filter((position) => checkedRowKeys.value.includes(position.positionId))
 )
+const visibleFundPositions = computed(() =>
+  fundPositions.value.slice((tablePage.value - 1) * tablePageSize.value, tablePage.value * tablePageSize.value)
+)
 const fundColumns: DataTableColumns<PositionValuation> = [
   {
     type: 'selection'
@@ -88,7 +92,7 @@ const fundColumns: DataTableColumns<PositionValuation> = [
   {
     title: '最新净值',
     key: 'currentPrice',
-    render: (row) => row.currentPrice ?? '缺失'
+    render: (row) => formatNav(row.currentPrice)
   },
   {
     title: '净值日期',
@@ -111,9 +115,14 @@ const fundColumns: DataTableColumns<PositionValuation> = [
       )
   },
   {
-    title: '收益率',
+    title: '盈亏率',
     key: 'profitRate',
-    render: (row) => formatPercent(row.profitRate)
+    render: (row) =>
+      h(
+        'span',
+        { class: { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 } },
+        formatPercent(row.profitRate)
+      )
   },
   {
     title: '操作',
@@ -134,6 +143,9 @@ const fundColumns: DataTableColumns<PositionValuation> = [
 ]
 const canCreate = computed(() => fundAccounts.value.length > 0)
 const showFundCandidates = computed(() => fundSearchFocused.value && fundCandidates.value.length > 0)
+const fundTableEmptyText = computed(() =>
+  canCreate.value ? '暂无基金持仓' : '请先创建人民币基金、美元基金或港元基金账户，再录入基金。'
+)
 const rules: FormRules = {
   accountId: {
     required: true,
@@ -155,11 +167,25 @@ const rules: FormRules = {
 }
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let navTimer: ReturnType<typeof setTimeout> | undefined
+let fundVisibleRefreshTimer: ReturnType<typeof setInterval> | undefined
+let lastVisibleFundRefreshAt = 0
 
 onMounted(async () => {
   await store.refresh()
   form.accountId = fundAccounts.value[0]?.id ?? ''
   syncAccountCurrency()
+  await refreshVisibleFundPricesIfDue(true)
+  fundVisibleRefreshTimer = setInterval(() => {
+    void refreshVisibleFundPricesIfDue()
+  }, FUND_VISIBLE_REFRESH_INTERVAL_MS)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (navTimer) clearTimeout(navTimer)
+  if (fundVisibleRefreshTimer) clearInterval(fundVisibleRefreshTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 watch(
@@ -340,6 +366,21 @@ async function confirmBatchRemove() {
   showBatchRemoveModal.value = false
 }
 
+async function refreshVisibleFundPricesIfDue(force = false) {
+  const now = Date.now()
+  if (!force && now - lastVisibleFundRefreshAt < FUND_VISIBLE_REFRESH_INTERVAL_MS) return
+  const assetIds = [...new Set(visibleFundPositions.value.map((position) => position.assetId))]
+  if (assetIds.length === 0) return
+  lastVisibleFundRefreshAt = now
+  await store.refreshFundPricesByAssetIds(assetIds)
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    void refreshVisibleFundPricesIfDue()
+  }
+}
+
 function normalizeOptionalNumber(value: unknown): number | undefined {
   if (value === undefined || value === null || value === '') return undefined
   const numberValue = Number(value)
@@ -382,7 +423,7 @@ async function confirmRemovePosition() {
         <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
         <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
         <NButton size="small" type="primary" @click="store.refreshFundPrices">刷新净值</NButton>
-        <NButton class="account-create-button" size="small" type="primary" @click="openCreateModal">新增基金</NButton>
+        <NButton class="account-create-button" size="small" type="primary" :disabled="!canCreate" @click="openCreateModal">新增基金</NButton>
       </div>
     </NCard>
 
@@ -390,13 +431,19 @@ async function confirmRemovePosition() {
       <NDataTable
         :columns="fundColumns"
         :data="fundPositions"
-        :bordered="false"
+        bordered
         flex-height
         :max-height="fundTableMaxHeight"
         :pagination="tablePagination"
         :row-key="rowKey"
         v-model:checked-row-keys="checkedRowKeys"
-      />
+      >
+        <template #empty>
+          <div class="table-empty-state">
+            <NEmpty size="small" :description="fundTableEmptyText" />
+          </div>
+        </template>
+      </NDataTable>
     </NCard>
 
     <NModal v-model:show="showCreateModal" preset="card" title="新增基金" class="position-create-modal">
@@ -405,7 +452,7 @@ async function confirmRemovePosition() {
         class="account-form create-form"
         label-placement="left"
         label-align="right"
-        :label-width="88"
+        :label-width="96"
         :model="form"
         :rules="rules"
         @submit.prevent="submit"
@@ -416,7 +463,7 @@ async function confirmRemovePosition() {
         <NFormItem label="币种" class="account-name-field">
           <NInput :value="currencyLabels[form.currency]" size="small" disabled />
         </NFormItem>
-        <NFormItem label="基金名称/代码" path="symbol" class="account-name-field">
+        <NFormItem label="名称/代码" path="symbol" class="account-name-field">
           <div class="asset-search-field modal-field">
             <NInput
               v-model:value="form.symbol"
@@ -457,7 +504,7 @@ async function confirmRemovePosition() {
         </NFormItem>
         <NFormItem label="最新净值" class="account-name-field">
           <NInput
-            :value="form.currentPrice ? `${form.currentPrice}` : navLoading ? '正在自动获取...' : '选择基金或输入代码后自动获取'"
+            :value="form.currentPrice ? formatNav(form.currentPrice) : navLoading ? '正在自动获取...' : '选择基金或输入代码后自动获取'"
             size="small"
             disabled
           />
@@ -467,9 +514,6 @@ async function confirmRemovePosition() {
         </NFormItem>
       <div class="form-footer">
         <NButton size="small" @click="showCreateModal = false">取消</NButton>
-        <NButton size="small" :disabled="navLoading" @click="refreshNav">
-          {{ navLoading ? '获取中...' : '获取最新净值' }}
-        </NButton>
         <NButton size="small" type="primary" :disabled="!canCreate || navLoading" @click="submit">确认新增</NButton>
         <span v-if="store.error" class="negative">{{ store.error }}</span>
       </div>

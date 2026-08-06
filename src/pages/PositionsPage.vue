@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { DataTableColumns, DataTableRowKey, FormInst, FormRules } from 'naive-ui'
-import { NAlert, NButton, NCard, NDataTable, NEllipsis, NForm, NFormItem, NInput, NInputNumber, NModal, NSelect, useMessage } from 'naive-ui'
+import { NAlert, NButton, NCard, NDataTable, NEllipsis, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NSelect, useMessage } from 'naive-ui'
 import { h, nextTick } from 'vue'
 import type { AssetCandidate } from '@/providers/manualAssetCatalog'
 import { searchAssetCandidatesOnline } from '@/services/assetSearchService'
@@ -10,22 +10,12 @@ import { priceService } from '@/services/priceService'
 import { usePortfolioStore } from '@/stores/portfolioStore'
 import type { AssetType, CurrencyCode, MarketCode, PositionValuation } from '@/types/domain'
 import { accountMatchesTypes, currencyForAccountType, marketForAccountType, stockAccountTypes } from '@/utils/accountType'
-import { formatCurrency, formatPercent } from '@/utils/format'
+import { formatCurrency, formatPercent, formatUnitPrice } from '@/utils/format'
 import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
 
 const store = usePortfolioStore()
 const message = useMessage()
 const maxStockQuantity = 999_999_999
-const assetTypeLabels: Record<AssetType, string> = {
-  stock: '股票',
-  etf: 'ETF',
-  fund: '场外基金',
-  cash: '现金',
-  bond: '债券',
-  commodity: '商品',
-  crypto: '加密资产',
-  other: '其他资产'
-}
 const marketLabels: Record<MarketCode, string> = {
   CN: 'A 股',
   US: '美股',
@@ -81,7 +71,7 @@ const selectedProfitFilter = ref<'profit' | 'loss' | ''>('')
 const keywordFilter = ref('')
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const stockTableMaxHeight = 'calc(100vh - 278px)'
-const stockTableScrollX = 1480
+const stockTableScrollX = 1520
 const tablePage = ref(1)
 const tablePageSize = ref(10)
 const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
@@ -92,13 +82,16 @@ const accountNameById = computed(() => new Map(store.accounts.map((account) => [
 const canCreate = computed(() => stockAccounts.value.length > 0)
 const isEditing = computed(() => Boolean(editingPositionId.value))
 const showAssetCandidates = computed(() => assetSearchFocused.value && assetCandidates.value.length > 0)
+const stockTableEmptyText = computed(() =>
+  canCreate.value ? '暂无股票持仓' : '请先创建 A股、美股或港股账户，再录入股票持仓。'
+)
 const quoteAlert = computed(() => {
   if (assetSearchLoading.value) return { type: 'info' as const, text: '正在联网搜索...' }
   if (quoteLoading.value) return { type: 'info' as const, text: '正在获取最新价...' }
   if (latestQuote.value) {
     return {
       type: 'success' as const,
-      text: `最新价：${formatCurrency(latestQuote.value.price, form.currency)} · ${
+      text: `最新价：${formatUnitPrice(latestQuote.value.price, form.currency)} · ${
         latestQuote.value.priceTime ?? latestQuote.value.priceDate
       }`
     }
@@ -167,11 +160,44 @@ const stockColumns: DataTableColumns<PositionValuation> = [
     render: (row) => renderEllipsis(accountNameById.value.get(row.accountId) ?? '未知账户')
   },
   {
-    title: '类型',
-    key: 'assetType',
-    width: 100,
-    className: 'nowrap-cell',
-    render: (row) => h('span', { class: 'tag' }, assetTypeLabels[row.assetType])
+    title: '市值',
+    key: 'marketValue',
+    width: 150,
+    className: 'nowrap-cell amount-cell',
+    defaultSortOrder: 'descend',
+    sorter: (a, b) => sortableValue(a.marketValue) - sortableValue(b.marketValue),
+    render: (row) =>
+      renderEllipsis(row.marketValue !== undefined ? formatCurrency(row.marketValue, row.nativeCurrency) : '缺少价格', 'amount-cell')
+  },
+  {
+    title: '总成本',
+    key: 'totalCost',
+    width: 150,
+    className: 'nowrap-cell amount-cell',
+    sorter: (a, b) => sortableValue(a.totalCost) - sortableValue(b.totalCost),
+    render: (row) => renderEllipsis(row.averageCost > 0 ? formatCurrency(row.totalCost, row.nativeCurrency) : '未填写', 'amount-cell')
+  },
+  {
+    title: '盈亏',
+    key: 'profitLoss',
+    width: 150,
+    className: 'nowrap-cell amount-cell',
+    sorter: (a, b) => sortableValue(a.profitLoss) - sortableValue(b.profitLoss),
+    render: (row) => renderEllipsis(formatCurrency(row.profitLoss, row.nativeCurrency), [
+      'amount-cell',
+      { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 }
+    ])
+  },
+  {
+    title: '盈亏率',
+    key: 'profitRate',
+    width: 120,
+    className: 'nowrap-cell amount-cell',
+    sorter: (a, b) => sortableValue(a.profitRate) - sortableValue(b.profitRate),
+    render: (row) => renderEllipsis(formatPercent(row.profitRate), [
+      'amount-cell',
+      { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 }
+    ])
   },
   {
     title: '币种',
@@ -192,7 +218,7 @@ const stockColumns: DataTableColumns<PositionValuation> = [
     key: 'averageCost',
     width: 130,
     className: 'nowrap-cell amount-cell',
-    render: (row) => renderEllipsis(row.averageCost > 0 ? formatCurrency(row.averageCost, row.nativeCurrency) : '未填写', 'amount-cell')
+    render: (row) => renderEllipsis(row.averageCost > 0 ? formatUnitPrice(row.averageCost, row.nativeCurrency) : '未填写', 'amount-cell')
   },
   {
     title: '当前价',
@@ -200,44 +226,7 @@ const stockColumns: DataTableColumns<PositionValuation> = [
     width: 130,
     className: 'nowrap-cell amount-cell',
     render: (row) =>
-      renderEllipsis(row.currentPrice !== undefined ? formatCurrency(row.currentPrice, row.nativeCurrency) : '缺少价格', 'amount-cell')
-  },
-  {
-    title: '总成本',
-    key: 'totalCost',
-    width: 150,
-    className: 'nowrap-cell amount-cell',
-    sorter: (a, b) => sortableValue(a.totalCost) - sortableValue(b.totalCost),
-    render: (row) => renderEllipsis(row.averageCost > 0 ? formatCurrency(row.totalCost, row.nativeCurrency) : '未填写', 'amount-cell')
-  },
-  {
-    title: '市值',
-    key: 'marketValue',
-    width: 150,
-    className: 'nowrap-cell amount-cell',
-    defaultSortOrder: 'descend',
-    sorter: (a, b) => sortableValue(a.marketValue) - sortableValue(b.marketValue),
-    render: (row) =>
-      renderEllipsis(row.marketValue !== undefined ? formatCurrency(row.marketValue, row.nativeCurrency) : '缺少价格', 'amount-cell')
-  },
-  {
-    title: '盈亏',
-    key: 'profitLoss',
-    width: 150,
-    className: 'nowrap-cell amount-cell',
-    sorter: (a, b) => sortableValue(a.profitLoss) - sortableValue(b.profitLoss),
-    render: (row) => renderEllipsis(formatCurrency(row.profitLoss, row.nativeCurrency), [
-      'amount-cell',
-      { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 }
-    ])
-  },
-  {
-    title: '收益率',
-    key: 'profitRate',
-    width: 120,
-    className: 'nowrap-cell amount-cell',
-    sorter: (a, b) => sortableValue(a.profitRate) - sortableValue(b.profitRate),
-    render: (row) => renderEllipsis(formatPercent(row.profitRate), 'amount-cell')
+      renderEllipsis(row.currentPrice !== undefined ? formatUnitPrice(row.currentPrice, row.nativeCurrency) : '缺少价格', 'amount-cell')
   },
   {
     title: '操作',
@@ -600,8 +589,6 @@ async function confirmRemovePosition() {
 
 <template>
   <section class="page">
-    <div v-if="!canCreate" class="notice">请先创建 A股、美股或港股账户，再录入股票持仓。</div>
-
     <NCard :bordered="false" class="query-card">
       <div class="account-filter-row">
         <label class="query-field">
@@ -637,7 +624,7 @@ async function confirmRemovePosition() {
         </label>
         <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
         <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
-        <NButton class="account-create-button" size="small" type="primary" @click="openCreateModal">新增持仓</NButton>
+        <NButton class="account-create-button" size="small" type="primary" :disabled="!canCreate" @click="openCreateModal">新增持仓</NButton>
       </div>
     </NCard>
 
@@ -645,14 +632,20 @@ async function confirmRemovePosition() {
       <NDataTable
         :columns="stockColumns"
         :data="stockPositions"
-        :bordered="false"
+        bordered
         flex-height
         :max-height="stockTableMaxHeight"
         :scroll-x="stockTableScrollX"
         :pagination="tablePagination"
         :row-key="rowKey"
         v-model:checked-row-keys="checkedRowKeys"
-      />
+      >
+        <template #empty>
+          <div class="table-empty-state">
+            <NEmpty size="small" :description="stockTableEmptyText" />
+          </div>
+        </template>
+      </NDataTable>
     </NCard>
 
     <NModal v-model:show="showCreateModal" preset="card" :title="isEditing ? '编辑持仓' : '新增持仓'" class="position-create-modal">

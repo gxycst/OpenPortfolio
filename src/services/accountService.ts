@@ -1,4 +1,5 @@
 import { accountRepository } from '@/repositories/accountRepository'
+import { positionRepository } from '@/repositories/positionRepository'
 import type { Account, AccountType, CurrencyCode, MarketCode } from '@/types/domain'
 import { currencyForAccountType, marketForAccountType } from '@/utils/accountType'
 import { nowIso } from '@/utils/date'
@@ -34,5 +35,13 @@ export const accountService = {
     await accountRepository.put(account)
     return account
   },
-  remove: (id: string) => accountRepository.delete(id)
+  remove: async (id: string) => {
+    const account = await accountRepository.get(id)
+    const positions = await positionRepository.listByAccount(id)
+    const activePositions = positions.filter((position) => !position.isClosed)
+    if (activePositions.length > 0) {
+      throw new Error(`账户「${account?.name ?? '当前账户'}」下仍有资产，请先清空该账户名下的资产后再删除`)
+    }
+    await accountRepository.delete(id)
+  }
 }

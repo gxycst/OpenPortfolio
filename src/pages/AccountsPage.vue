@@ -4,6 +4,7 @@ import {
   NButton,
   NCard,
   NDataTable,
+  NEmpty,
   NForm,
   NFormItem,
   NInput,
@@ -83,6 +84,7 @@ const tablePagination = computed(() => createTablePagination(tablePage, tablePag
 const selectedBatchAccounts = computed(() =>
   filteredAccounts.value.filter((account) => checkedRowKeys.value.includes(account.id))
 )
+const accountTableEmptyText = computed(() => (store.accounts.length === 0 ? '暂无账户' : '暂无匹配账户'))
 const columns: DataTableColumns<Account> = [
   {
     type: 'selection'
@@ -196,21 +198,29 @@ function requestBatchRemove() {
 }
 
 async function confirmBatchRemove() {
-  const ids = selectedBatchAccounts.value.map((account) => account.id)
-  const remainingCount = filteredAccounts.value.length - ids.length
-  await store.removeAccounts(ids)
-  checkedRowKeys.value = []
-  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
-  showBatchRemoveModal.value = false
+  try {
+    const ids = selectedBatchAccounts.value.map((account) => account.id)
+    const remainingCount = filteredAccounts.value.length - ids.length
+    await store.removeAccounts(ids)
+    checkedRowKeys.value = []
+    tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+    showBatchRemoveModal.value = false
+  } catch (error) {
+    message.warning(error instanceof Error ? error.message : '账户删除失败')
+  }
 }
 
 async function removeSingleAccount(id: string) {
-  const remainingCount = filteredAccounts.value.some((account) => account.id === id)
-    ? filteredAccounts.value.length - 1
-    : filteredAccounts.value.length
-  await store.removeAccount(id)
-  tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
-  checkedRowKeys.value = checkedRowKeys.value.filter((key) => key !== id)
+  try {
+    const remainingCount = filteredAccounts.value.some((account) => account.id === id)
+      ? filteredAccounts.value.length - 1
+      : filteredAccounts.value.length
+    await store.removeAccount(id)
+    tablePage.value = pageAfterRemoval(tablePage.value, tablePageSize.value, remainingCount)
+    checkedRowKeys.value = checkedRowKeys.value.filter((key) => key !== id)
+  } catch (error) {
+    message.warning(error instanceof Error ? error.message : '账户删除失败')
+  }
 }
 
 function accountTypeFromParts(category: AccountCategory, currency: CurrencyCode): AccountType {
@@ -258,13 +268,19 @@ function categoryForAccountType(type: AccountType): AccountCategory {
       <NDataTable
         :columns="columns"
         :data="filteredAccounts"
-        :bordered="false"
+        bordered
         flex-height
         :max-height="tableMaxHeight"
         :pagination="tablePagination"
         :row-key="rowKey"
         v-model:checked-row-keys="checkedRowKeys"
-      />
+      >
+        <template #empty>
+          <div class="table-empty-state">
+            <NEmpty size="small" :description="accountTableEmptyText" />
+          </div>
+        </template>
+      </NDataTable>
     </NCard>
 
     <NModal v-model:show="showCreateModal" preset="card" title="新增账户" class="account-create-modal">
