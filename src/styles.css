@@ -114,12 +114,14 @@ th {
 }
 
 .sidebar {
+  position: relative;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
   border-right: 1px solid #d9e1e8;
   background: #eef3f7;
-  overflow: hidden;
+  overflow: visible;
   padding: 1.25rem 1rem;
   transition: padding 0.22s ease;
 }
@@ -269,6 +271,8 @@ th {
 }
 
 .content {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0.75rem;
@@ -512,6 +516,51 @@ th {
   width: min(760px, calc(100vw - 32px));
 }
 
+.help-modal {
+  width: min(780px, calc(100vw - 32px));
+}
+
+.help-content {
+  display: grid;
+  max-height: min(70vh, 680px);
+  gap: 1.15rem;
+  overflow: auto;
+  padding-right: 0.35rem;
+}
+
+.help-content section {
+  display: grid;
+  gap: 0.55rem;
+  border-bottom: 1px solid #eef2f6;
+  padding-bottom: 1rem;
+}
+
+.help-content section:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.help-content h3 {
+  margin: 0;
+  color: #1f2933;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.help-content p {
+  margin: 0;
+  color: #52616f;
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+.help-note {
+  border-left: 3px solid #059669;
+  background: #f0fdf4;
+  color: #334155;
+  padding: 0.65rem 0.8rem;
+}
+
 .backup-panel {
   display: grid;
   gap: 1rem;
@@ -596,6 +645,299 @@ th {
 
 .asset-total strong {
   font-size: 2rem;
+}
+
+.asset-total-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem 0.8rem;
+}
+
+.native-total-panel {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem 0.8rem;
+}
+
+.asset-total-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.native-total {
+  position: relative;
+  overflow: hidden;
+  gap: 0.35rem;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 0.9rem 1rem;
+}
+
+.native-total strong {
+  color: #1f2933;
+  font-size: 1.65rem;
+  line-height: 1.15;
+}
+
+.native-total em {
+  font-size: 0.84rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.native-total small {
+  color: #667788;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.currency-total {
+  position: relative;
+  overflow: hidden;
+  gap: 0.35rem;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 0.9rem 1rem;
+}
+
+.currency-total strong {
+  color: #17202a;
+  font-size: 2.05rem;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.currency-total em {
+  font-size: 0.86rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.currency-total small {
+  color: #667788;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.currency-code {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.9rem;
+  border-radius: 999px;
+  background: #eef3f7;
+  color: #52616f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.28rem 0.45rem;
+}
+
+.cny-total .currency-code {
+  background: #e7f6ef;
+  color: #047857;
+}
+
+.usd-total .currency-code {
+  background: #e9f2ff;
+  color: #1d4ed8;
+}
+
+.hkd-total .currency-code {
+  background: #fdebf5;
+  color: #be185d;
+}
+
+.rate-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.8rem;
+  border-top: 1px solid #eef2f6;
+  color: #667788;
+  font-size: 0.8rem;
+  margin: 0;
+  padding-top: 0.75rem;
+}
+
+.rate-inline span {
+  color: #52616f;
+  font-weight: 800;
+}
+
+.rate-inline strong {
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.breakdown-card {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+  min-height: 260px;
+}
+
+.breakdown-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.breakdown-header h3 {
+  margin: 0;
+  color: #1f2933;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.breakdown-header span {
+  color: #667788;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.breakdown-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.donut-layout {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+}
+
+.donut-chart {
+  position: relative;
+  display: grid;
+  width: 112px;
+  height: 112px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.donut-chart::after {
+  position: absolute;
+  inset: 22px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+
+.donut-chart span {
+  position: relative;
+  z-index: 1;
+  color: #1f2933;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.donut-legend {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.donut-legend-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.donut-legend-item i {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+}
+
+.donut-legend-item strong {
+  overflow: hidden;
+  color: #334155;
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut-legend-item span {
+  color: #667788;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.breakdown-item {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.breakdown-row strong {
+  overflow: hidden;
+  color: #334155;
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-row span {
+  color: #52616f;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.breakdown-track {
+  overflow: hidden;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #eef3f7;
+}
+
+.breakdown-bar {
+  display: block;
+  height: 100%;
+  min-width: 0.25rem;
+  border-radius: inherit;
+}
+
+.currency-bar {
+  background: #059669;
+}
+
+.asset-bar {
+  background: #1d4ed8;
+}
+
+.account-bar {
+  background: #be185d;
+}
+
+.breakdown-item small {
+  color: #667788;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.breakdown-empty {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  color: #667788;
+  font-size: 0.88rem;
+  margin: 0;
 }
 
 .toolbar {

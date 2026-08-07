@@ -99,6 +99,18 @@ describe('portfolio calculations', () => {
         status: 'valid',
         createdAt: '2026-08-04T00:00:00.000Z',
         updatedAt: '2026-08-04T00:00:00.000Z'
+      },
+      {
+        id: 'fx_hkd_cny',
+        baseCurrency: 'HKD',
+        quoteCurrency: 'CNY',
+        rate: 0.92,
+        providerId: 'manual',
+        rateDate: '2026-08-04',
+        fetchedAt: '2026-08-04T00:00:00.000Z',
+        status: 'valid',
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
       }
     ]
 
@@ -106,6 +118,135 @@ describe('portfolio calculations', () => {
 
     expect(summary.totalValueUSD).toBe(1000)
     expect(summary.totalValueCNY).toBe(7200)
+    expect(summary.totalValueHKD).toBeCloseTo(7826.0869)
+    expect(summary.totalProfitUSD).toBe(200)
+    expect(summary.totalProfitCNY).toBe(1440)
+    expect(summary.totalProfitHKD).toBeCloseTo(1565.2173)
+    expect(summary.rawCurrencyBreakdown).toEqual([{ currency: 'USD', value: 1000, profitLoss: 200, percentage: 1 }])
+    expect(summary.assetTypeBreakdown).toHaveLength(1)
+    expect(summary.assetTypeBreakdown[0].key).toBe('stock')
     expect(summary.missingPriceCount).toBe(1)
+  })
+
+  it('uses manually entered fund profit to calculate fund profit rate', () => {
+    const accounts: Account[] = [
+      {
+        id: 'acc_fund',
+        name: '天天基金',
+        type: 'cny_fund',
+        defaultCurrency: 'CNY',
+        isArchived: false,
+        sortOrder: 1,
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+    const assets: Asset[] = [
+      {
+        id: 'asset_fund',
+        symbol: '000001',
+        name: '示例基金',
+        assetType: 'fund',
+        market: 'FUND_CN',
+        currency: 'CNY',
+        isActive: true,
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+    const positions: Position[] = [
+      {
+        id: 'pos_fund',
+        accountId: 'acc_fund',
+        assetId: 'asset_fund',
+        quantity: 1000,
+        averageCost: 0,
+        holdingProfit: 200,
+        costCurrency: 'CNY',
+        priceMode: 'auto',
+        isClosed: false,
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+    const prices: Price[] = [
+      {
+        id: 'price_fund',
+        assetId: 'asset_fund',
+        price: 1.2,
+        currency: 'CNY',
+        priceType: 'nav',
+        providerId: 'manual',
+        priceDate: '2026-08-04',
+        fetchedAt: '2026-08-04T00:00:00.000Z',
+        delayed: false,
+        status: 'valid',
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+
+    const summary = calculatePortfolioSummary({ accounts, assets, positions, prices, rates: [] })
+    const fund = summary.positions[0]
+
+    expect(fund.marketValue).toBe(1200)
+    expect(fund.totalCost).toBe(1000)
+    expect(fund.profitLoss).toBe(200)
+    expect(fund.profitRate).toBe(0.2)
+  })
+
+  it('does not calculate a fund profit rate from negative inferred cost', () => {
+    const accounts: Account[] = []
+    const assets: Asset[] = [
+      {
+        id: 'asset_fund',
+        symbol: '000001',
+        name: '示例基金',
+        assetType: 'fund',
+        market: 'FUND_CN',
+        currency: 'CNY',
+        isActive: true,
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+    const positions: Position[] = [
+      {
+        id: 'pos_fund',
+        accountId: 'acc_fund',
+        assetId: 'asset_fund',
+        quantity: 100,
+        averageCost: 0,
+        holdingProfit: 400,
+        costCurrency: 'CNY',
+        priceMode: 'auto',
+        isClosed: false,
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+    const prices: Price[] = [
+      {
+        id: 'price_fund',
+        assetId: 'asset_fund',
+        price: 1.1877,
+        currency: 'CNY',
+        priceType: 'nav',
+        providerId: 'manual',
+        priceDate: '2026-08-04',
+        fetchedAt: '2026-08-04T00:00:00.000Z',
+        delayed: false,
+        status: 'valid',
+        createdAt: '2026-08-04T00:00:00.000Z',
+        updatedAt: '2026-08-04T00:00:00.000Z'
+      }
+    ]
+
+    const summary = calculatePortfolioSummary({ accounts, assets, positions, prices, rates: [] })
+    const fund = summary.positions[0]
+
+    expect(fund.marketValue).toBe(118.77)
+    expect(fund.profitLoss).toBe(400)
+    expect(fund.profitRate).toBeUndefined()
   })
 })

@@ -56,6 +56,7 @@ export interface Position {
   assetId: string
   quantity: number
   averageCost: number
+  holdingProfit?: number
   costCurrency: CurrencyCode
   priceMode: PriceMode
   manualPrice?: number
@@ -151,6 +152,7 @@ export interface PositionValuation {
   nativeCurrency: CurrencyCode
   valueCNY?: number
   valueUSD?: number
+  valueHKD?: number
   priceStatus: 'valid' | 'stale' | 'missing'
 }
 
@@ -162,17 +164,27 @@ export interface SummaryItem {
   percentage: number
 }
 
+export interface RawCurrencyItem {
+  currency: CurrencyCode
+  value: number
+  profitLoss: number
+  percentage: number
+}
+
 export interface PortfolioSummary {
   totalValueCNY: number
   totalValueUSD: number
+  totalValueHKD: number
   totalCostCNY: number
   totalCostUSD: number
   totalProfitCNY: number
   totalProfitUSD: number
+  totalProfitHKD: number
   positions: PositionValuation[]
   accountBreakdown: SummaryItem[]
   currencyBreakdown: SummaryItem[]
   assetTypeBreakdown: SummaryItem[]
+  rawCurrencyBreakdown: RawCurrencyItem[]
   missingPriceCount: number
   stalePriceCount: number
   calculatedAt: string

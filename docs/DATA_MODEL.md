@@ -19,7 +19,7 @@
 * 记录人民币和美元现金
 * 保存股票价格和基金净值
 * 保存人民币与美元汇率
-* 计算人民币和美元口径的总资产
+* 计算人民币、美元和港元口径的总资产
 * 保存每日资产快照
 * 支持完整备份与恢复
 * 支持后续数据库版本迁移
@@ -457,6 +457,7 @@ export interface Position {
   assetId: string
   quantity: number
   averageCost: number
+  holdingProfit?: number
   costCurrency: CurrencyCode
   priceMode: PriceMode
   manualPrice?: number
@@ -478,6 +479,7 @@ export interface Position {
 | assetId         | string       |  是 | 对应资产      |
 | quantity        | number       |  是 | 数量或基金份额   |
 | averageCost     | number       |  是 | 平均成本单价    |
+| holdingProfit   | number       |  否 | 基金手动录入的持有收益 |
 | costCurrency    | CurrencyCode |  是 | 成本币种      |
 | priceMode       | PriceMode    |  是 | 自动或手动价格模式 |
 | manualPrice     | number       |  否 | 手动价格      |
@@ -528,6 +530,8 @@ QQQ 数量：100
 ```
 
 系统不要求用户录入每笔交易。
+
+基金可以直接录入平台显示的持有收益。此时系统优先使用 `holdingProfit` 作为基金盈亏金额，并根据最新净值和份额反推总成本，用于计算盈亏率。
 
 ## 7.7 现金持仓
 
@@ -1135,14 +1139,17 @@ export interface PositionValuation {
 export interface PortfolioSummary {
   totalValueCNY: number
   totalValueUSD: number
+  totalValueHKD: number
   totalCostCNY: number
   totalCostUSD: number
   totalProfitCNY: number
   totalProfitUSD: number
+  totalProfitHKD: number
   positions: PositionValuation[]
   accountBreakdown: SummaryItem[]
   currencyBreakdown: SummaryItem[]
   assetTypeBreakdown: SummaryItem[]
+  rawCurrencyBreakdown: RawCurrencyItem[]
   missingPriceCount: number
   stalePriceCount: number
   calculatedAt: string
@@ -1150,6 +1157,8 @@ export interface PortfolioSummary {
 ```
 
 这些对象由计算服务实时生成。
+
+`rawCurrencyBreakdown` 表示不经过汇率折算的原始币种总值和原始币种盈亏，例如人民币资产按人民币加总，美元资产按美元加总。
 
 ---
 

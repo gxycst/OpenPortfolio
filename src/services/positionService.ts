@@ -54,6 +54,7 @@ export const positionService = {
       assetId: asset.id,
       quantity: input.quantity,
       averageCost,
+      holdingProfit: input.assetType === 'fund' ? input.holdingProfit : undefined,
       costCurrency: input.currency,
       priceMode: input.assetType === 'cash' ? 'manual' : 'auto',
       manualPrice: input.assetType === 'cash' ? 1 : undefined,
@@ -118,6 +119,12 @@ function validatePositionInput(input: PositionInput): void {
   }
   if (input.assetType !== 'cash' && (input.currentPrice === undefined || input.currentPrice < 0)) {
     throw new Error('非现金资产需要录入当前价格')
+  }
+  if (input.assetType === 'fund' && input.holdingProfit !== undefined && input.currentPrice !== undefined) {
+    const marketValue = input.quantity * input.currentPrice
+    if (marketValue - input.holdingProfit <= 0) {
+      throw new Error('持有收益不能大于或等于当前市值')
+    }
   }
 }
 

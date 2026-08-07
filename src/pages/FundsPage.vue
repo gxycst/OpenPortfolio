@@ -40,11 +40,13 @@ const formRef = ref<FormInst | null>(null)
 const fundSearchFocused = ref(false)
 const fundCandidates = ref<AssetCandidate[]>([])
 const fundSearchLoading = ref(false)
+const suppressFundSearch = ref(false)
 const navLoading = ref(false)
 const navError = ref('')
 const pendingRemoval = ref<{ id: string; name: string } | undefined>()
 const showCreateModal = ref(false)
 const showBatchRemoveModal = ref(false)
+const editingPositionId = ref<string | undefined>()
 const selectedFundCode = ref('')
 const selectedAccountFilter = ref('')
 const keywordFilter = ref('')
@@ -56,6 +58,7 @@ const tablePagination = computed(() => createTablePagination(tablePage, tablePag
 
 const fundAccounts = computed(() => store.accounts.filter((account) => accountMatchesTypes(account, fundAccountTypes)))
 const selectedAccount = computed(() => fundAccounts.value.find((account) => account.id === form.accountId))
+const isEditing = computed(() => Boolean(editingPositionId.value))
 const fundAccountFilterOptions = computed(() => [
   { label: '全部', value: '' },
   ...fundAccounts.value.map((account) => ({ label: account.name, value: account.id }))
@@ -127,18 +130,29 @@ const fundColumns: DataTableColumns<PositionValuation> = [
   {
     title: '操作',
     key: 'actions',
-    width: 96,
+    width: 140,
     render: (row) =>
-      h(
-        NButton,
-        {
-          size: 'small',
-          type: 'error',
-          secondary: true,
-          onClick: () => requestRemovePosition(row.positionId, row.assetName)
-        },
-        { default: () => '删除' }
-      )
+      h('div', { class: 'stock-action-group' }, [
+        h(
+          NButton,
+          {
+            size: 'small',
+            secondary: true,
+            onClick: () => openEditModal(row)
+          },
+          { default: () => '编辑' }
+        ),
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'error',
+            secondary: true,
+            onClick: () => requestRemovePosition(row.positionId, row.assetName)
+          },
+          { default: () => '删除' }
+        )
+      ])
   }
 ]
 const canCreate = computed(() => fundAccounts.value.length > 0)
@@ -162,6 +176,19 @@ const rules: FormRules = {
     type: 'number',
     validator: (_rule, value: number) => Number.isFinite(value) && value > 0,
     message: '请输入大于 0 的持有份额',
+    trigger: ['input', 'blur']
+  },
+  holdingProfit: {
+    type: 'number',
+    validator: (_rule, value: number | null | undefined) => {
+      if (value === undefined || value === null) return true
+      if (!Number.isFinite(value)) return false
+      const quantity = normalizeOptionalNumber(form.quantity)
+      const currentPrice = normalizeOptionalNumber(form.currentPrice)
+      if (quantity === undefined || currentPrice === undefined) return true
+      return quantity * currentPrice - value > 0
+    },
+    message: '持有收益不能大于或等于当前市值',
     trigger: ['input', 'blur']
   }
 }
@@ -201,6 +228,7 @@ watch([selectedAccountFilter, keywordFilter], () => {
 watch(
   () => form.symbol,
   (query) => {
+    if (suppressFundSearch.value) return
     if (!query.trim()) {
       if (searchTimer) clearTimeout(searchTimer)
       if (navTimer) clearTimeout(navTimer)
@@ -303,16 +331,16 @@ async function submit() {
       currentPrice: normalizeOptionalNumber(form.currentPrice),
       priceDate: form.priceDate || undefined,
       priceProviderId: form.priceProviderId || undefined
-    })
+    }, editingPositionId.value)
     resetCreateForm()
     showCreateModal.value = false
-    await store.refresh()
   } catch {
     // The store owns the user-facing error message.
   }
 }
 
 function resetCreateForm() {
+  editingPositionId.value = undefined
   form.accountId = fundAccounts.value[0]?.id ?? ''
   syncAccountCurrency()
   if (searchTimer) clearTimeout(searchTimer)
@@ -330,6 +358,31 @@ function resetCreateForm() {
   fundSearchLoading.value = false
   navLoading.value = false
   navError.value = ''
+  formRef.value?.restoreValidation()
+}
+
+async function openEditModal(row: PositionValuation) {
+  suppressFundSearch.value = true
+  editingPositionId.value = row.positionId
+  const position = store.positions.find((item) => item.id === row.positionId)
+  form.accountId = row.accountId
+  form.symbol = row.assetSymbol
+  form.name = row.assetName
+  form.currency = row.nativeCurrency
+  form.quantity = row.quantity
+  form.holdingProfit = position?.holdingProfit ?? row.profitLoss
+  form.currentPrice = row.currentPrice
+  form.priceDate = row.priceDate ?? ''
+  form.priceProviderId = ''
+  selectedFundCode.value = row.assetSymbol
+  fundCandidates.value = []
+  fundSearchFocused.value = false
+  fundSearchLoading.value = false
+  navLoading.value = false
+  navError.value = ''
+  showCreateModal.value = true
+  await nextTick()
+  suppressFundSearch.value = false
   formRef.value?.restoreValidation()
 }
 
@@ -446,7 +499,7 @@ async function confirmRemovePosition() {
       </NDataTable>
     </NCard>
 
-    <NModal v-model:show="showCreateModal" preset="card" title="新增基金" class="position-create-modal">
+    <NModal v-model:show="showCreateModal" preset="card" :title="isEditing ? '编辑基金' : '新增基金'" class="position-create-modal">
       <NForm
         ref="formRef"
         class="account-form create-form"
@@ -458,7 +511,12 @@ async function confirmRemovePosition() {
         @submit.prevent="submit"
       >
         <NFormItem label="账户" path="accountId" class="account-name-field">
-          <NSelect v-model:value="form.accountId" size="small" :options="fundAccounts.map((account) => ({ label: account.name, value: account.id }))" />
+          <NSelect
+            v-model:value="form.accountId"
+            size="small"
+            :disabled="isEditing"
+            :options="fundAccounts.map((account) => ({ label: account.name, value: account.id }))"
+          />
         </NFormItem>
         <NFormItem label="币种" class="account-name-field">
           <NInput :value="currencyLabels[form.currency]" size="small" disabled />
@@ -470,6 +528,7 @@ async function confirmRemovePosition() {
               size="small"
               autocomplete="off"
               placeholder="请输入基金代码或名称搜索"
+              :disabled="isEditing"
               @focus="fundSearchFocused = true"
               @input="fundSearchFocused = true"
               @blur="refreshNav"
@@ -499,7 +558,7 @@ async function confirmRemovePosition() {
         <NFormItem label="持有份额" path="quantity" class="account-name-field">
           <NInputNumber v-model:value="form.quantity" size="small" :min="0" :step="0.000001" />
         </NFormItem>
-        <NFormItem label="持有收益" class="account-name-field">
+        <NFormItem label="持有收益" path="holdingProfit" class="account-name-field">
           <NInputNumber v-model:value="form.holdingProfit" size="small" :step="0.01" placeholder="可填负数" />
         </NFormItem>
         <NFormItem label="最新净值" class="account-name-field">
@@ -514,7 +573,7 @@ async function confirmRemovePosition() {
         </NFormItem>
       <div class="form-footer">
         <NButton size="small" @click="showCreateModal = false">取消</NButton>
-        <NButton size="small" type="primary" :disabled="!canCreate || navLoading" @click="submit">确认新增</NButton>
+        <NButton size="small" type="primary" :disabled="!canCreate || navLoading" @click="submit">{{ isEditing ? '确认保存' : '确认新增' }}</NButton>
         <span v-if="store.error" class="negative">{{ store.error }}</span>
       </div>
       </NForm>

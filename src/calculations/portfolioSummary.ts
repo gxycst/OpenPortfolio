@@ -7,6 +7,7 @@ import type {
   Position,
   PositionValuation,
   Price,
+  RawCurrencyItem,
   SummaryItem
 } from '@/types/domain'
 
@@ -23,7 +24,7 @@ export function calculateProfitLoss(marketValue: number, totalCost: number): num
 }
 
 export function calculateProfitRate(profitLoss: number, totalCost: number): number | undefined {
-  if (totalCost === 0) return undefined
+  if (totalCost <= 0) return undefined
   return profitLoss / totalCost
 }
 
@@ -63,7 +64,6 @@ export function calculatePortfolioSummary(input: {
   rates: ExchangeRate[]
   calculatedAt?: string
 }): PortfolioSummary {
-  const usdToCny = getUsdToCnyRate(input.rates)
   const assetsById = new Map(input.assets.map((asset) => [asset.id, asset]))
   const pricesByAssetId = new Map(input.prices.map((price) => [price.assetId, price]))
   const openPositions = input.positions.filter((position) => !position.isClosed)
@@ -73,28 +73,34 @@ export function calculatePortfolioSummary(input: {
       return missingValuation(position, '未知资产')
     }
 
-    const totalCost = calculateTotalCost(position.quantity, position.averageCost)
-    const hasCostBasis = position.averageCost > 0
+    const calculatedTotalCost = calculateTotalCost(position.quantity, position.averageCost)
+    const hasManualFundProfit = asset.assetType === 'fund' && position.holdingProfit !== undefined
     const cachedPrice = pricesByAssetId.get(asset.id)
     const effectivePrice = asset.assetType === 'cash' ? 1 : position.priceMode === 'manual' ? position.manualPrice : cachedPrice?.price
     if (effectivePrice === undefined || Number.isNaN(effectivePrice)) {
       return {
         ...baseValuation(position, asset.name, asset.symbol, asset.assetType, asset.currency),
-        totalCost,
+        totalCost: calculatedTotalCost,
+        profitLoss: hasManualFundProfit ? position.holdingProfit : undefined,
         priceStatus: 'missing'
       }
     }
 
     const marketValue = asset.assetType === 'cash' ? position.quantity : calculateMarketValue(position.quantity, effectivePrice)
-    const profitLoss = hasCostBasis ? calculateProfitLoss(marketValue, totalCost) : undefined
+    const totalCost = hasManualFundProfit ? marketValue - (position.holdingProfit ?? 0) : calculatedTotalCost
+    const hasCostBasis = totalCost > 0
+    const profitLoss = hasManualFundProfit ? position.holdingProfit : hasCostBasis ? calculateProfitLoss(marketValue, totalCost) : undefined
     const valueCNY = convertCurrencyWithRates(marketValue, asset.currency, 'CNY', input.rates)
     const valueUSD = convertCurrencyWithRates(marketValue, asset.currency, 'USD', input.rates)
+    const valueHKD = convertCurrencyWithRates(marketValue, asset.currency, 'HKD', input.rates)
     const costCNY = hasCostBasis ? convertCurrencyWithRates(totalCost, position.costCurrency, 'CNY', input.rates) : undefined
     const costUSD = hasCostBasis ? convertCurrencyWithRates(totalCost, position.costCurrency, 'USD', input.rates) : undefined
     const profitCNY =
       profitLoss === undefined ? undefined : convertCurrencyWithRates(profitLoss, asset.currency, 'CNY', input.rates)
     const profitUSD =
       profitLoss === undefined ? undefined : convertCurrencyWithRates(profitLoss, asset.currency, 'USD', input.rates)
+    const profitHKD =
+      profitLoss === undefined ? undefined : convertCurrencyWithRates(profitLoss, asset.currency, 'HKD', input.rates)
 
     return {
       ...baseValuation(position, asset.name, asset.symbol, asset.assetType, asset.currency),
@@ -106,32 +112,45 @@ export function calculatePortfolioSummary(input: {
       profitRate: profitLoss === undefined ? undefined : calculateProfitRate(profitLoss, totalCost),
       valueCNY,
       valueUSD,
+      valueHKD,
       priceStatus: cachedPrice?.status === 'stale' ? 'stale' : 'valid',
       totalCostCNY: costCNY,
       totalCostUSD: costUSD,
       profitCNY,
-      profitUSD
-    } as PositionValuation & { totalCostCNY?: number; totalCostUSD?: number; profitCNY?: number; profitUSD?: number }
+      profitUSD,
+      profitHKD
+    } as PositionValuation & {
+      totalCostCNY?: number
+      totalCostUSD?: number
+      profitCNY?: number
+      profitUSD?: number
+      profitHKD?: number
+    }
   })
 
   const totalValueCNY = sumDefined(valuations.map((item) => item.valueCNY))
   const totalValueUSD = sumDefined(valuations.map((item) => item.valueUSD))
+  const totalValueHKD = sumDefined(valuations.map((item) => (item as PositionValuation & { valueHKD?: number }).valueHKD))
   const costCNY = sumDefined(valuations.map((item) => (item as PositionValuation & { totalCostCNY?: number }).totalCostCNY))
   const costUSD = sumDefined(valuations.map((item) => (item as PositionValuation & { totalCostUSD?: number }).totalCostUSD))
   const totalProfitCNY = sumDefined(valuations.map((item) => (item as PositionValuation & { profitCNY?: number }).profitCNY))
   const totalProfitUSD = sumDefined(valuations.map((item) => (item as PositionValuation & { profitUSD?: number }).profitUSD))
+  const totalProfitHKD = sumDefined(valuations.map((item) => (item as PositionValuation & { profitHKD?: number }).profitHKD))
 
   return {
     totalValueCNY,
     totalValueUSD,
+    totalValueHKD,
     totalCostCNY: costCNY,
     totalCostUSD: costUSD,
     totalProfitCNY,
     totalProfitUSD,
+    totalProfitHKD,
     positions: valuations,
     accountBreakdown: breakdownBy(valuations, input.accounts, 'account'),
     currencyBreakdown: breakdownBy(valuations, input.accounts, 'currency'),
     assetTypeBreakdown: breakdownBy(valuations, input.accounts, 'assetType'),
+    rawCurrencyBreakdown: rawCurrencyBreakdown(valuations),
     missingPriceCount: valuations.filter((item) => item.priceStatus === 'missing').length,
     stalePriceCount: valuations.filter((item) => item.priceStatus === 'stale').length,
     calculatedAt: input.calculatedAt ?? new Date().toISOString()
@@ -204,7 +223,11 @@ function breakdownBy(
   for (const valuation of valuations) {
     if (valuation.valueCNY === undefined || valuation.valueUSD === undefined) continue
     const key =
-      mode === 'account' ? valuation.accountId : mode === 'currency' ? valuation.nativeCurrency : valuation.assetType
+      mode === 'account'
+        ? valuation.accountId
+        : mode === 'currency'
+          ? valuation.nativeCurrency
+          : normalizeAssetTypeKey(valuation.assetType)
     const name = mode === 'account' ? names.get(key) ?? key : key
     const current = grouped.get(key) ?? { key, name, valueCNY: 0, valueUSD: 0, percentage: 0 }
     current.valueCNY += valuation.valueCNY
@@ -215,5 +238,26 @@ function breakdownBy(
   return Array.from(grouped.values()).map((item) => ({
     ...item,
     percentage: total === 0 ? 0 : item.valueCNY / total
+  }))
+}
+
+function normalizeAssetTypeKey(assetType: PositionValuation['assetType']): string {
+  return assetType === 'etf' ? 'stock' : assetType
+}
+
+function rawCurrencyBreakdown(valuations: PositionValuation[]): RawCurrencyItem[] {
+  const grouped = new Map<CurrencyCode, { value: number; profitLoss: number }>()
+  for (const valuation of valuations) {
+    if (valuation.marketValue === undefined) continue
+    const current = grouped.get(valuation.nativeCurrency) ?? { value: 0, profitLoss: 0 }
+    current.value += valuation.marketValue
+    current.profitLoss += valuation.profitLoss ?? 0
+    grouped.set(valuation.nativeCurrency, current)
+  }
+  const items = Array.from(grouped.entries()).map(([currency, item]) => ({ currency, ...item }))
+  const total = sumDefined(items.map((item) => item.value))
+  return items.map((item) => ({
+    ...item,
+    percentage: total === 0 ? 0 : item.value / total
   }))
 }

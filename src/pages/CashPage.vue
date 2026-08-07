@@ -35,6 +35,7 @@ const formRef = ref<FormInst | null>(null)
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const showCreateModal = ref(false)
 const showBatchRemoveModal = ref(false)
+const editingPositionId = ref<string | undefined>()
 const selectedAccount = ref('')
 const selectedCurrency = ref<CurrencyCode | ''>('')
 const currencyOptions: Array<{ label: string; value: CashCurrency }> = [
@@ -56,6 +57,7 @@ const accountOptions = computed(() => store.accounts.map((account) => ({ label: 
 const formAccount = computed(() => store.accounts.find((account) => account.id === form.accountId))
 const formCurrency = computed(() => cashCurrencyForAccount(formAccount.value))
 const canCreate = computed(() => store.accounts.length > 0)
+const isEditing = computed(() => Boolean(editingPositionId.value))
 const cashTableEmptyText = computed(() =>
   canCreate.value ? '暂无现金记录' : '请先创建账户，再录入现金余额。'
 )
@@ -94,29 +96,40 @@ const cashColumns: DataTableColumns<PositionValuation> = [
   {
     title: '操作',
     key: 'actions',
-    width: 96,
+    width: 140,
     render: (row) =>
-      h(
-        NPopconfirm,
-        {
-          positiveText: '确认删除',
-          negativeText: '取消',
-          onPositiveClick: () => removeSinglePosition(row.positionId)
-        },
-        {
-          trigger: () =>
-            h(
-              NButton,
-              {
-                size: 'small',
-                type: 'error',
-                secondary: true
-              },
-              { default: () => '删除' }
-            ),
-          default: () => `确定要删除「${row.assetName}」吗？`
-        }
-      )
+      h('div', { class: 'stock-action-group' }, [
+        h(
+          NButton,
+          {
+            size: 'small',
+            secondary: true,
+            onClick: () => openEditModal(row)
+          },
+          { default: () => '编辑' }
+        ),
+        h(
+          NPopconfirm,
+          {
+            positiveText: '确认删除',
+            negativeText: '取消',
+            onPositiveClick: () => removeSinglePosition(row.positionId)
+          },
+          {
+            trigger: () =>
+              h(
+                NButton,
+                {
+                  size: 'small',
+                  type: 'error',
+                  secondary: true
+                },
+                { default: () => '删除' }
+              ),
+            default: () => `确定要删除「${row.assetName}」吗？`
+          }
+        )
+      ])
   }
 ]
 const rules: FormRules = {
@@ -157,7 +170,7 @@ async function submit() {
       currency,
       quantity: Number(form.balance),
       averageCost: 1
-    })
+    }, editingPositionId.value)
     resetCreateForm()
     showCreateModal.value = false
   } catch {
@@ -166,8 +179,18 @@ async function submit() {
 }
 
 function resetCreateForm() {
+  editingPositionId.value = undefined
   form.accountId = store.accounts[0]?.id ?? ''
   form.balance = 0
+  formRef.value?.restoreValidation()
+}
+
+async function openEditModal(row: PositionValuation) {
+  editingPositionId.value = row.positionId
+  form.accountId = row.accountId
+  form.balance = row.marketValue ?? row.quantity
+  showCreateModal.value = true
+  await nextTick()
   formRef.value?.restoreValidation()
 }
 
@@ -258,7 +281,7 @@ async function confirmBatchRemove() {
       </NDataTable>
     </NCard>
 
-    <NModal v-model:show="showCreateModal" preset="card" title="新增现金" class="account-create-modal">
+    <NModal v-model:show="showCreateModal" preset="card" :title="isEditing ? '编辑现金' : '新增现金'" class="account-create-modal">
       <NForm
         ref="formRef"
         class="account-form create-form"
@@ -270,7 +293,7 @@ async function confirmBatchRemove() {
         @submit.prevent="submit"
       >
         <NFormItem label="账户" path="accountId" class="account-name-field">
-          <NSelect v-model:value="form.accountId" size="small" :options="accountOptions" />
+          <NSelect v-model:value="form.accountId" size="small" :disabled="isEditing" :options="accountOptions" />
         </NFormItem>
         <NFormItem label="币种" class="account-name-field">
           <NInput :value="currencyLabels[formCurrency]" size="small" disabled />
@@ -281,7 +304,7 @@ async function confirmBatchRemove() {
         <div class="form-footer">
           <span v-if="store.error" class="negative">{{ store.error }}</span>
           <NButton size="small" @click="showCreateModal = false">取消</NButton>
-          <NButton size="small" type="primary" :disabled="!canCreate" @click="submit">确认新增</NButton>
+          <NButton size="small" type="primary" :disabled="!canCreate" @click="submit">{{ isEditing ? '确认保存' : '确认新增' }}</NButton>
         </div>
       </NForm>
     </NModal>
