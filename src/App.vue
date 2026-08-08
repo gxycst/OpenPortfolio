@@ -5,16 +5,17 @@
         <div class="shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
           <aside class="sidebar">
             <div class="sidebar-header">
-              <p class="eyebrow">有数资产</p>
-              <button
-                class="sidebar-toggle"
-                type="button"
-                :aria-label="sidebarCollapsed ? '展开菜单' : '收起菜单'"
-                @click="sidebarCollapsed = !sidebarCollapsed"
-              >
-                <PanelLeftClose v-if="!sidebarCollapsed" :size="18" />
-                <PanelLeftOpen v-else :size="18" />
-              </button>
+              <div class="brand-mark" aria-label="有数资产">
+                <span class="brand-logo" aria-hidden="true">
+                  <svg viewBox="0 0 36 36" role="img">
+                    <rect class="brand-logo-bg" x="2" y="2" width="32" height="32" rx="9" />
+                    <path class="brand-logo-line" d="M10 23.5L16.2 17.4L20.8 20.7L27 12.4" />
+                    <path class="brand-logo-bar" d="M10 26V21.8M18 26V18.8M26 26V14.6" />
+                    <circle class="brand-logo-dot" cx="27" cy="12.4" r="2" />
+                  </svg>
+                </span>
+                <span class="brand-name">有数资产</span>
+              </div>
             </div>
             <nav class="nav">
               <RouterLink v-for="item in navItems" :key="item.to" :to="item.to" :aria-label="item.label">
@@ -26,14 +27,26 @@
           </aside>
           <main class="content">
             <header class="topbar">
-              <div class="breadcrumb">
-                <span class="breadcrumb-root">有数资产</span>
-                <span class="breadcrumb-separator">/</span>
-                <strong>{{ currentPageLabel }}</strong>
+              <div class="topbar-left">
+                <button
+                  class="sidebar-toggle"
+                  type="button"
+                  :aria-label="sidebarCollapsed ? '展开菜单' : '收起菜单'"
+                  @click="sidebarCollapsed = !sidebarCollapsed"
+                >
+                  <PanelLeftClose v-if="!sidebarCollapsed" :size="18" />
+                  <PanelLeftOpen v-else :size="18" />
+                </button>
+                <div class="breadcrumb">
+                  <span class="breadcrumb-root">有数资产</span>
+                  <span class="breadcrumb-separator">/</span>
+                  <strong>{{ currentPageLabel }}</strong>
+                </div>
               </div>
               <div class="topbar-actions">
                 <NButton size="small" secondary @click="showImportModal = true">导入</NButton>
                 <NButton size="small" secondary @click="exportData">导出</NButton>
+                <NButton size="small" type="error" secondary @click="showClearFirstModal = true">清空数据</NButton>
                 <NButton size="small" secondary @click="showHelpModal = true">帮助</NButton>
               </div>
             </header>
@@ -55,12 +68,43 @@
           </div>
         </NModal>
 
+        <NModal v-model:show="showClearFirstModal" preset="card" title="清空本地数据" class="account-create-modal">
+          <div class="backup-panel">
+            <p class="modal-copy">
+              此操作会清空当前浏览器中的账户、股票、基金、现金、价格缓存、汇率缓存和历史快照。清空后无法撤销。
+            </p>
+            <div class="backup-actions">
+              <NButton size="small" secondary @click="showClearFirstModal = false">取消</NButton>
+              <NButton size="small" type="error" @click="openClearSecondModal">继续清空</NButton>
+            </div>
+          </div>
+        </NModal>
+
+        <NModal v-model:show="showClearSecondModal" preset="card" title="再次确认" class="account-create-modal">
+          <div class="backup-panel">
+            <p class="modal-copy">
+              请再次确认：你即将清空所有本地资产数据。建议已经导出备份后再执行。
+            </p>
+            <div class="backup-actions">
+              <NButton size="small" secondary @click="showClearSecondModal = false">取消</NButton>
+              <NButton size="small" type="error" :loading="clearingData" @click="clearLocalData">确认清空</NButton>
+            </div>
+          </div>
+        </NModal>
+
         <NModal v-model:show="showHelpModal" preset="card" title="帮助" class="help-modal">
           <div class="help-content">
             <section>
               <h3>谁可能需要？</h3>
               <p>有些特殊情况，人们不得不开理财超市，以求得阶段性的投资最优解。一个人可能同时持有美股、A 股、港股、美基、港基、人民币基金等各类投资组合。</p>
               <p>这些资产分散各处，统计它们再进行汇率换算，并非易事。本站便因此而生：聚合全球性资产，一目了然，心中有数。</p>
+            </section>
+
+            <section>
+              <h3>快速演示</h3>
+              <div class="help-video">
+                <video controls preload="metadata" src="/media/intro.mp4"></video>
+              </div>
             </section>
 
             <section>
@@ -89,6 +133,10 @@
                 需要提醒的是，由于免费接口的缘故，本系统的股票精度目前只能做到 3 位数，导致统计时，股票持仓的收益金额稍微有些出入，但收益率的计算没有问题。
               </p>
               <p>如果你有更完美的替代方案，我也非常乐意使用。</p>
+              <p>
+                项目地址：
+                <a href="https://github.com/gxycst/OpenPortfolio" target="_blank" rel="noreferrer">github.com/gxycst/OpenPortfolio</a>
+              </p>
             </section>
           </div>
         </NModal>
@@ -108,6 +156,9 @@ import { usePortfolioStore } from '@/stores/portfolioStore'
 const sidebarCollapsed = ref(false)
 const showImportModal = ref(false)
 const showHelpModal = ref(false)
+const showClearFirstModal = ref(false)
+const showClearSecondModal = ref(false)
+const clearingData = ref(false)
 const backupInputRef = ref<HTMLInputElement | null>(null)
 const backupStatus = ref('')
 const backupStatusType = ref<'success' | 'error'>('success')
@@ -150,6 +201,23 @@ async function importData(event: Event) {
   } catch (error) {
     backupStatusType.value = 'error'
     backupStatus.value = error instanceof Error ? error.message : '备份导入失败'
+  }
+}
+
+function openClearSecondModal() {
+  showClearFirstModal.value = false
+  showClearSecondModal.value = true
+}
+
+async function clearLocalData() {
+  clearingData.value = true
+  try {
+    await store.clearLocalData()
+    backupStatusType.value = 'success'
+    backupStatus.value = '本地数据已清空'
+    showClearSecondModal.value = false
+  } finally {
+    clearingData.value = false
   }
 }
 

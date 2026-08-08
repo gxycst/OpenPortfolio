@@ -12,6 +12,8 @@ import type { AssetType, CurrencyCode, MarketCode, PositionValuation } from '@/t
 import { accountMatchesTypes, currencyForAccountType, marketForAccountType, stockAccountTypes } from '@/utils/accountType'
 import { formatCurrency, formatPercent, formatUnitPrice } from '@/utils/format'
 import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { Filter } from 'lucide-vue-next'
 
 const store = usePortfolioStore()
 const message = useMessage()
@@ -64,14 +66,16 @@ const latestQuote = ref<{ price: number; priceTime?: string; priceDate: string }
 const pendingRemoval = ref<{ id: string; name: string } | undefined>()
 const showCreateModal = ref(false)
 const showBatchRemoveModal = ref(false)
+const showMobileFilters = ref(false)
 const editingPositionId = ref<string | undefined>()
 const selectedAccountFilter = ref('')
 const selectedCurrencyFilter = ref<CurrencyCode | ''>('')
 const selectedProfitFilter = ref<'profit' | 'loss' | ''>('')
 const keywordFilter = ref('')
 const checkedRowKeys = ref<DataTableRowKey[]>([])
-const stockTableMaxHeight = 'calc(100vh - 278px)'
-const stockTableScrollX = 1520
+const stockTableMaxHeight = 'var(--table-max-height)'
+const isMobile = useIsMobile()
+const stockTableScrollX = computed(() => (isMobile.value ? 720 : 1680))
 const tablePage = ref(1)
 const tablePageSize = ref(10)
 const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
@@ -138,7 +142,8 @@ const stockPositions = computed<PositionValuation[]>(() =>
 const selectedBatchPositions = computed(() =>
   stockPositions.value.filter((position) => checkedRowKeys.value.includes(position.positionId))
 )
-const stockColumns: DataTableColumns<PositionValuation> = [
+const stockColumns = computed<DataTableColumns<PositionValuation>>(() => isMobile.value ? mobileStockColumns : desktopStockColumns)
+const desktopStockColumns: DataTableColumns<PositionValuation> = [
   {
     type: 'selection',
     fixed: 'left',
@@ -223,7 +228,7 @@ const stockColumns: DataTableColumns<PositionValuation> = [
   {
     title: '当前价',
     key: 'currentPrice',
-    width: 130,
+    width: 150,
     className: 'nowrap-cell amount-cell',
     render: (row) =>
       renderEllipsis(row.currentPrice !== undefined ? formatUnitPrice(row.currentPrice, row.nativeCurrency) : '缺少价格', 'amount-cell')
@@ -260,6 +265,51 @@ const stockColumns: DataTableColumns<PositionValuation> = [
           )
         ]
       )
+  }
+]
+const mobileStockColumns: DataTableColumns<PositionValuation> = [
+  {
+    type: 'selection',
+    width: 42
+  },
+  {
+    title: '资产',
+    key: 'assetName',
+    width: 220,
+    className: 'nowrap-cell',
+    render: (row) =>
+      h('div', { class: 'mobile-main-cell' }, [
+        h('strong', row.assetName),
+        h('span', `${row.assetSymbol} · ${accountNameById.value.get(row.accountId) ?? '未知账户'} · ${currencyLabels[row.nativeCurrency]}`)
+      ])
+  },
+  {
+    title: '市值',
+    key: 'marketValue',
+    width: 150,
+    className: 'nowrap-cell amount-cell',
+    sorter: (a, b) => sortableValue(a.marketValue) - sortableValue(b.marketValue),
+    render: (row) =>
+      renderEllipsis(row.marketValue !== undefined ? formatCurrency(row.marketValue, row.nativeCurrency) : '缺少价格', 'amount-cell')
+  },
+  {
+    title: '盈亏',
+    key: 'profitLoss',
+    width: 130,
+    className: 'nowrap-cell amount-cell',
+    sorter: (a, b) => sortableValue(a.profitLoss) - sortableValue(b.profitLoss),
+    render: (row) =>
+      h('div', { class: ['mobile-profit-cell', { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 }] }, [
+        h('strong', formatCurrency(row.profitLoss, row.nativeCurrency)),
+        h('span', formatPercent(row.profitRate))
+      ])
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 150,
+    className: 'nowrap-cell',
+    render: (row) => renderActionButtons(row)
   }
 ]
 const rules: FormRules = {
@@ -422,6 +472,7 @@ function resetFilters() {
   selectedCurrencyFilter.value = ''
   selectedProfitFilter.value = ''
   keywordFilter.value = ''
+  showMobileFilters.value = false
 }
 
 function rowKey(row: PositionValuation): string {
@@ -458,6 +509,30 @@ function renderEllipsis(text: string, className?: string | Array<string | Record
     },
     { default: () => text }
   )
+}
+
+function renderActionButtons(row: PositionValuation) {
+  return h('div', { class: 'stock-action-group' }, [
+    h(
+      NButton,
+      {
+        size: 'small',
+        secondary: true,
+        onClick: () => openEditModal(row)
+      },
+      { default: () => '编辑' }
+    ),
+    h(
+      NButton,
+      {
+        size: 'small',
+        type: 'error',
+        secondary: true,
+        onClick: () => requestRemovePosition(row.positionId, row.assetName)
+      },
+      { default: () => '删除' }
+    )
+  ])
 }
 
 function stockSeedCountFromHash(): number {
@@ -590,7 +665,16 @@ async function confirmRemovePosition() {
 <template>
   <section class="page">
     <NCard :bordered="false" class="query-card">
-      <div class="account-filter-row">
+      <div class="mobile-table-toolbar">
+        <NButton size="small" secondary circle @click="showMobileFilters = true">
+          <template #icon>
+            <Filter :size="16" />
+          </template>
+        </NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
+        <NButton class="account-create-button" size="small" type="primary" :disabled="!canCreate" @click="openCreateModal">新增持仓</NButton>
+      </div>
+      <div class="account-filter-row desktop-filter-row">
         <label class="query-field">
           <span>账户</span>
           <NSelect
@@ -647,6 +731,32 @@ async function confirmRemovePosition() {
         </template>
       </NDataTable>
     </NCard>
+
+    <NModal v-model:show="showMobileFilters" preset="card" title="筛选条件" class="account-create-modal">
+      <div class="mobile-filter-panel">
+        <label class="query-field">
+          <span>账户</span>
+          <NSelect v-model:value="selectedAccountFilter" class="account-filter-select" size="small" :options="stockAccountFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>币种</span>
+          <NSelect v-model:value="selectedCurrencyFilter" class="account-filter-select" size="small" :options="currencyFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>盈亏情况</span>
+          <NSelect v-model:value="selectedProfitFilter" class="account-filter-select" size="small" :options="profitFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>关键词</span>
+          <NInput v-model:value="keywordFilter" class="asset-filter-input" size="small" placeholder="搜索代码/名称" clearable />
+        </label>
+        <div class="form-actions modal-actions">
+          <NButton size="small" secondary @click="showMobileFilters = false">取消</NButton>
+          <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
+          <NButton size="small" type="primary" @click="showMobileFilters = false">完成</NButton>
+        </div>
+      </div>
+    </NModal>
 
     <NModal v-model:show="showCreateModal" preset="card" :title="isEditing ? '编辑持仓' : '新增持仓'" class="position-create-modal">
       <NForm

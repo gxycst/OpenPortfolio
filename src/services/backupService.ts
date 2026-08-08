@@ -1,4 +1,5 @@
 import { backupRepository } from '@/repositories/backupRepository'
+import { demoBackupData } from '@/data/demoBackup'
 import type {
   Account,
   AppSetting,
@@ -28,6 +29,14 @@ export interface BackupFile {
 }
 
 export const backupService = {
+  ensureDemoDataIfEmpty: async () => {
+    const [hasAnyUserData, hasDemoClearedFlag] = await Promise.all([
+      backupRepository.hasAnyUserData(),
+      backupRepository.hasDemoClearedFlag()
+    ])
+    if (hasAnyUserData || hasDemoClearedFlag) return
+    await backupRepository.replaceAll(demoBackupData)
+  },
   exportBackup: async (): Promise<BackupFile> => ({
     format: 'openportfolio-backup',
     schemaVersion: 1,
@@ -38,6 +47,16 @@ export const backupService = {
   importBackup: async (backup: unknown) => {
     const parsed = validateBackup(backup)
     await backupRepository.replaceAll(parsed.data)
+  },
+  clearLocalData: async () => {
+    const now = new Date().toISOString()
+    await backupRepository.clearAll([
+      {
+        key: 'demoDataClearedAt',
+        value: now,
+        updatedAt: now
+      }
+    ])
   }
 }
 

@@ -23,6 +23,7 @@ export const usePortfolioStore = defineStore('portfolio', {
       this.loading = true
       this.error = ''
       try {
+        await backupService.ensureDemoDataIfEmpty()
         await exchangeRateService.ensureCoreRates()
         await Promise.allSettled([priceService.refreshStaleFundPrices(), priceService.refreshStaleStockPrices()])
         const [accounts, positionData, exchangeRates, summary] = await Promise.all([
@@ -74,6 +75,9 @@ export const usePortfolioStore = defineStore('portfolio', {
     exportBackup: () => backupService.exportBackup(),
     async importBackup(input: unknown) {
       await this.runAndRefresh(() => backupService.importBackup(input))
+    },
+    async clearLocalData() {
+      await this.runAndRefresh(() => backupService.clearLocalData())
     },
     async runAndRefresh<T>(action: () => Promise<T>): Promise<T> {
       this.error = ''

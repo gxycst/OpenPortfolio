@@ -8,6 +8,8 @@ import type { Account, CurrencyCode, PositionValuation } from '@/types/domain'
 import { currencyForAccountType } from '@/utils/accountType'
 import { formatCurrency } from '@/utils/format'
 import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { Filter } from 'lucide-vue-next'
 
 const store = usePortfolioStore()
 const message = useMessage()
@@ -35,6 +37,7 @@ const formRef = ref<FormInst | null>(null)
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const showCreateModal = ref(false)
 const showBatchRemoveModal = ref(false)
+const showMobileFilters = ref(false)
 const editingPositionId = ref<string | undefined>()
 const selectedAccount = ref('')
 const selectedCurrency = ref<CurrencyCode | ''>('')
@@ -58,6 +61,7 @@ const formAccount = computed(() => store.accounts.find((account) => account.id =
 const formCurrency = computed(() => cashCurrencyForAccount(formAccount.value))
 const canCreate = computed(() => store.accounts.length > 0)
 const isEditing = computed(() => Boolean(editingPositionId.value))
+const isMobile = useIsMobile()
 const cashTableEmptyText = computed(() =>
   canCreate.value ? '暂无现金记录' : '请先创建账户，再录入现金余额。'
 )
@@ -67,14 +71,16 @@ const cashPositions = computed(() =>
     .filter((item) => (selectedAccount.value ? item.accountId === selectedAccount.value : true))
     .filter((item) => (selectedCurrency.value ? item.nativeCurrency === selectedCurrency.value : true))
 )
-const tableMaxHeight = 'calc(100vh - 278px)'
+const tableMaxHeight = 'var(--table-max-height)'
+const tableScrollX = computed(() => (isMobile.value ? 560 : undefined))
 const tablePage = ref(1)
 const tablePageSize = ref(10)
 const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
 const selectedBatchPositions = computed(() =>
   cashPositions.value.filter((position) => checkedRowKeys.value.includes(position.positionId))
 )
-const cashColumns: DataTableColumns<PositionValuation> = [
+const cashColumns = computed<DataTableColumns<PositionValuation>>(() => isMobile.value ? mobileCashColumns : desktopCashColumns)
+const desktopCashColumns: DataTableColumns<PositionValuation> = [
   {
     type: 'selection'
   },
@@ -130,6 +136,35 @@ const cashColumns: DataTableColumns<PositionValuation> = [
           }
         )
       ])
+  }
+]
+const mobileCashColumns: DataTableColumns<PositionValuation> = [
+  {
+    type: 'selection',
+    width: 42
+  },
+  {
+    title: '现金',
+    key: 'accountId',
+    width: 210,
+    render: (row) =>
+      h('div', { class: 'mobile-main-cell' }, [
+        h('strong', accountNameById.value.get(row.accountId) ?? '未知账户'),
+        h('span', currencyLabels[row.nativeCurrency])
+      ])
+  },
+  {
+    title: '余额',
+    key: 'marketValue',
+    width: 150,
+    className: 'nowrap-cell amount-cell',
+    render: (row) => formatCurrency(row.marketValue, row.nativeCurrency)
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 150,
+    render: (row) => renderActionButtons(row)
   }
 ]
 const rules: FormRules = {
@@ -204,6 +239,7 @@ async function openCreateModal() {
 function resetFilters() {
   selectedAccount.value = ''
   selectedCurrency.value = ''
+  showMobileFilters.value = false
 }
 
 function cashCurrencyForAccount(account: Account | undefined): CashCurrency {
@@ -214,6 +250,41 @@ function cashCurrencyForAccount(account: Account | undefined): CashCurrency {
 
 function rowKey(row: PositionValuation): string {
   return row.positionId
+}
+
+function renderActionButtons(row: PositionValuation) {
+  return h('div', { class: 'stock-action-group' }, [
+    h(
+      NButton,
+      {
+        size: 'small',
+        secondary: true,
+        onClick: () => openEditModal(row)
+      },
+      { default: () => '编辑' }
+    ),
+    h(
+      NPopconfirm,
+      {
+        positiveText: '确认删除',
+        negativeText: '取消',
+        onPositiveClick: () => removeSinglePosition(row.positionId)
+      },
+      {
+        trigger: () =>
+          h(
+            NButton,
+            {
+              size: 'small',
+              type: 'error',
+              secondary: true
+            },
+            { default: () => '删除' }
+          ),
+        default: () => `确定要删除「${row.assetName}」吗？`
+      }
+    )
+  ])
 }
 
 function requestBatchRemove() {
@@ -247,7 +318,16 @@ async function confirmBatchRemove() {
 <template>
   <section class="page">
     <NCard :bordered="false" class="query-card">
-      <div class="account-filter-row">
+      <div class="mobile-table-toolbar">
+        <NButton size="small" secondary circle @click="showMobileFilters = true">
+          <template #icon>
+            <Filter :size="16" />
+          </template>
+        </NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
+        <NButton class="account-create-button" size="small" type="primary" :disabled="!canCreate" @click="openCreateModal">新增现金</NButton>
+      </div>
+      <div class="account-filter-row desktop-filter-row">
         <label class="query-field">
           <span>账户</span>
           <NSelect v-model:value="selectedAccount" class="account-filter-select" size="small" :options="accountFilterOptions" />
@@ -269,6 +349,7 @@ async function confirmBatchRemove() {
         bordered
         flex-height
         :max-height="tableMaxHeight"
+        :scroll-x="tableScrollX"
         :pagination="tablePagination"
         :row-key="rowKey"
         v-model:checked-row-keys="checkedRowKeys"
@@ -280,6 +361,24 @@ async function confirmBatchRemove() {
         </template>
       </NDataTable>
     </NCard>
+
+    <NModal v-model:show="showMobileFilters" preset="card" title="筛选条件" class="account-create-modal">
+      <div class="mobile-filter-panel">
+        <label class="query-field">
+          <span>账户</span>
+          <NSelect v-model:value="selectedAccount" class="account-filter-select" size="small" :options="accountFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>币种</span>
+          <NSelect v-model:value="selectedCurrency" class="account-filter-select" size="small" :options="currencyFilterOptions" />
+        </label>
+        <div class="form-actions modal-actions">
+          <NButton size="small" secondary @click="showMobileFilters = false">取消</NButton>
+          <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
+          <NButton size="small" type="primary" @click="showMobileFilters = false">完成</NButton>
+        </div>
+      </div>
+    </NModal>
 
     <NModal v-model:show="showCreateModal" preset="card" :title="isEditing ? '编辑现金' : '新增现金'" class="account-create-modal">
       <NForm

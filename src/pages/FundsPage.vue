@@ -11,6 +11,8 @@ import type { CurrencyCode, PositionValuation } from '@/types/domain'
 import { accountMatchesTypes, currencyForAccountType, fundAccountTypes } from '@/utils/accountType'
 import { formatCurrency, formatNav, formatPercent } from '@/utils/format'
 import { createTablePagination, pageAfterRemoval } from '@/utils/tablePagination'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { Filter } from 'lucide-vue-next'
 
 const store = usePortfolioStore()
 const message = useMessage()
@@ -46,18 +48,22 @@ const navError = ref('')
 const pendingRemoval = ref<{ id: string; name: string } | undefined>()
 const showCreateModal = ref(false)
 const showBatchRemoveModal = ref(false)
+const showMobileFilters = ref(false)
 const editingPositionId = ref<string | undefined>()
 const selectedFundCode = ref('')
 const selectedAccountFilter = ref('')
 const keywordFilter = ref('')
 const checkedRowKeys = ref<DataTableRowKey[]>([])
-const fundTableMaxHeight = 'calc(100vh - 278px)'
+const fundTableMaxHeight = 'var(--table-max-height)'
+const isMobile = useIsMobile()
+const fundTableScrollX = computed(() => (isMobile.value ? 720 : undefined))
 const tablePage = ref(1)
 const tablePageSize = ref(10)
 const tablePagination = computed(() => createTablePagination(tablePage, tablePageSize))
 
 const fundAccounts = computed(() => store.accounts.filter((account) => accountMatchesTypes(account, fundAccountTypes)))
 const selectedAccount = computed(() => fundAccounts.value.find((account) => account.id === form.accountId))
+const accountNameById = computed(() => new Map(store.accounts.map((account) => [account.id, account.name])))
 const isEditing = computed(() => Boolean(editingPositionId.value))
 const fundAccountFilterOptions = computed(() => [
   { label: '全部', value: '' },
@@ -79,7 +85,8 @@ const selectedBatchPositions = computed(() =>
 const visibleFundPositions = computed(() =>
   fundPositions.value.slice((tablePage.value - 1) * tablePageSize.value, tablePage.value * tablePageSize.value)
 )
-const fundColumns: DataTableColumns<PositionValuation> = [
+const fundColumns = computed<DataTableColumns<PositionValuation>>(() => isMobile.value ? mobileFundColumns : desktopFundColumns)
+const desktopFundColumns: DataTableColumns<PositionValuation> = [
   {
     type: 'selection'
   },
@@ -87,6 +94,20 @@ const fundColumns: DataTableColumns<PositionValuation> = [
     title: '基金',
     key: 'assetName',
     render: (row) => h('span', [row.assetName, ' ', h('span', { class: 'muted' }, row.assetSymbol)])
+  },
+  {
+    title: '账户',
+    key: 'accountId',
+    width: 150,
+    className: 'nowrap-cell',
+    render: (row) => accountNameById.value.get(row.accountId) ?? '未知账户'
+  },
+  {
+    title: '币种',
+    key: 'nativeCurrency',
+    width: 90,
+    className: 'nowrap-cell',
+    render: (row) => currencyLabels[row.nativeCurrency]
   },
   {
     title: '份额',
@@ -153,6 +174,47 @@ const fundColumns: DataTableColumns<PositionValuation> = [
           { default: () => '删除' }
         )
       ])
+  }
+]
+const mobileFundColumns: DataTableColumns<PositionValuation> = [
+  {
+    type: 'selection',
+    width: 42
+  },
+  {
+    title: '基金',
+    key: 'assetName',
+    width: 240,
+    render: (row) =>
+      h('div', { class: 'mobile-main-cell' }, [
+        h('strong', row.assetName),
+        h('span', `${row.assetSymbol} · ${accountNameById.value.get(row.accountId) ?? '未知账户'} · ${currencyLabels[row.nativeCurrency]}`),
+        h('span', `净值 ${formatNav(row.currentPrice)} · ${row.priceDate ?? '缺失'}`)
+      ])
+  },
+  {
+    title: '市值',
+    key: 'marketValue',
+    width: 145,
+    className: 'nowrap-cell amount-cell',
+    render: (row) => formatCurrency(row.marketValue, row.nativeCurrency)
+  },
+  {
+    title: '盈亏',
+    key: 'profitLoss',
+    width: 130,
+    className: 'nowrap-cell amount-cell',
+    render: (row) =>
+      h('div', { class: ['mobile-profit-cell', { positive: (row.profitLoss ?? 0) >= 0, negative: (row.profitLoss ?? 0) < 0 }] }, [
+        h('strong', formatCurrency(row.profitLoss, row.nativeCurrency)),
+        h('span', formatPercent(row.profitRate))
+      ])
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 150,
+    render: (row) => renderActionButtons(row)
   }
 ]
 const canCreate = computed(() => fundAccounts.value.length > 0)
@@ -396,10 +458,35 @@ async function openCreateModal() {
 function resetFilters() {
   selectedAccountFilter.value = ''
   keywordFilter.value = ''
+  showMobileFilters.value = false
 }
 
 function rowKey(row: PositionValuation): string {
   return row.positionId
+}
+
+function renderActionButtons(row: PositionValuation) {
+  return h('div', { class: 'stock-action-group' }, [
+    h(
+      NButton,
+      {
+        size: 'small',
+        secondary: true,
+        onClick: () => openEditModal(row)
+      },
+      { default: () => '编辑' }
+    ),
+    h(
+      NButton,
+      {
+        size: 'small',
+        type: 'error',
+        secondary: true,
+        onClick: () => requestRemovePosition(row.positionId, row.assetName)
+      },
+      { default: () => '删除' }
+    )
+  ])
 }
 
 function requestBatchRemove() {
@@ -459,7 +546,17 @@ async function confirmRemovePosition() {
 <template>
   <section class="page">
     <NCard :bordered="false" class="query-card">
-      <div class="account-filter-row">
+      <div class="mobile-table-toolbar">
+        <NButton size="small" secondary circle @click="showMobileFilters = true">
+          <template #icon>
+            <Filter :size="16" />
+          </template>
+        </NButton>
+        <NButton size="small" type="error" secondary @click="requestBatchRemove">批量删除</NButton>
+        <NButton size="small" type="primary" @click="store.refreshFundPrices">刷新净值</NButton>
+        <NButton class="account-create-button" size="small" type="primary" :disabled="!canCreate" @click="openCreateModal">新增基金</NButton>
+      </div>
+      <div class="account-filter-row desktop-filter-row">
         <label class="query-field">
           <span>账户</span>
           <NSelect
@@ -487,6 +584,7 @@ async function confirmRemovePosition() {
         bordered
         flex-height
         :max-height="fundTableMaxHeight"
+        :scroll-x="fundTableScrollX"
         :pagination="tablePagination"
         :row-key="rowKey"
         v-model:checked-row-keys="checkedRowKeys"
@@ -498,6 +596,24 @@ async function confirmRemovePosition() {
         </template>
       </NDataTable>
     </NCard>
+
+    <NModal v-model:show="showMobileFilters" preset="card" title="筛选条件" class="account-create-modal">
+      <div class="mobile-filter-panel">
+        <label class="query-field">
+          <span>账户</span>
+          <NSelect v-model:value="selectedAccountFilter" class="account-filter-select" size="small" :options="fundAccountFilterOptions" />
+        </label>
+        <label class="query-field">
+          <span>关键词</span>
+          <NInput v-model:value="keywordFilter" class="asset-filter-input" size="small" placeholder="搜索代码/名称" clearable />
+        </label>
+        <div class="form-actions modal-actions">
+          <NButton size="small" secondary @click="showMobileFilters = false">取消</NButton>
+          <NButton size="small" type="primary" @click="resetFilters">重置</NButton>
+          <NButton size="small" type="primary" @click="showMobileFilters = false">完成</NButton>
+        </div>
+      </div>
+    </NModal>
 
     <NModal v-model:show="showCreateModal" preset="card" :title="isEditing ? '编辑基金' : '新增基金'" class="position-create-modal">
       <NForm

@@ -22,6 +22,17 @@ export interface BackupData {
 }
 
 export const backupRepository = {
+  hasAnyUserData: async (): Promise<boolean> => {
+    const [accounts, assets, positions, prices, snapshots] = await Promise.all([
+      db.accounts.count(),
+      db.assets.count(),
+      db.positions.count(),
+      db.prices.count(),
+      db.portfolioSnapshots.count()
+    ])
+    return accounts + assets + positions + prices + snapshots > 0
+  },
+  hasDemoClearedFlag: async (): Promise<boolean> => Boolean(await db.metadata.get('demoDataClearedAt')),
   exportAll: async (): Promise<BackupData> => ({
     accounts: await db.accounts.toArray(),
     assets: await db.assets.toArray(),
@@ -32,6 +43,33 @@ export const backupRepository = {
     appSettings: await db.appSettings.toArray(),
     metadata: await db.metadata.toArray()
   }),
+  clearAll: async (metadata: Metadata[] = []) =>
+    db.transaction(
+      'rw',
+      [
+        db.accounts,
+        db.assets,
+        db.positions,
+        db.prices,
+        db.exchangeRates,
+        db.portfolioSnapshots,
+        db.appSettings,
+        db.metadata
+      ],
+      async () => {
+        await db.accounts.clear()
+        await db.assets.clear()
+        await db.positions.clear()
+        await db.prices.clear()
+        await db.exchangeRates.clear()
+        await db.portfolioSnapshots.clear()
+        await db.appSettings.clear()
+        await db.metadata.clear()
+        if (metadata.length > 0) {
+          await db.metadata.bulkPut(metadata)
+        }
+      }
+    ),
   replaceAll: async (data: BackupData) =>
     db.transaction(
       'rw',
