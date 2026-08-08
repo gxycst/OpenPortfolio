@@ -35,7 +35,24 @@ export const backupService = {
       backupRepository.hasDemoClearedFlag()
     ])
     if (hasAnyUserData || hasDemoClearedFlag) return
-    await backupRepository.replaceAll(demoBackupData)
+    const now = new Date().toISOString()
+    await backupRepository.replaceAll({
+      ...demoBackupData,
+      metadata: [
+        ...demoBackupData.metadata,
+        {
+          key: 'demoDataLoadedAt',
+          value: now,
+          updatedAt: now
+        }
+      ]
+    })
+  },
+  isDemoDataActive: async () => {
+    const [metadata, data] = await Promise.all([backupRepository.getMetadata(), backupRepository.exportAll()])
+    if (metadata.some((item) => item.key === 'demoDataClearedAt')) return false
+    if (metadata.some((item) => item.key === 'demoDataLoadedAt')) return true
+    return isBundledDemoData(data)
   },
   exportBackup: async (): Promise<BackupFile> => ({
     format: 'openportfolio-backup',
@@ -84,4 +101,16 @@ export function validateBackup(input: unknown): BackupFile {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+export function isBundledDemoData(data: Pick<BackupFile['data'], 'accounts' | 'assets' | 'positions'>): boolean {
+  return hasSameIds(data.accounts, demoBackupData.accounts) &&
+    hasSameIds(data.assets, demoBackupData.assets) &&
+    hasSameIds(data.positions, demoBackupData.positions)
+}
+
+function hasSameIds(left: Array<{ id: string }>, right: Array<{ id: string }>): boolean {
+  if (left.length !== right.length) return false
+  const rightIds = new Set(right.map((item) => item.id))
+  return left.every((item) => rightIds.has(item.id))
 }

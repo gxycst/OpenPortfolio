@@ -109,6 +109,13 @@ function profitClass(value: number | undefined) {
 
 <template>
   <section class="page">
+    <section v-if="store.isDemoData" class="demo-notice">
+      <div>
+        <strong>当前展示的是模拟数据</strong>
+        <span>你可以点击顶部“清空数据”后，开始录入自己的真实资产。</span>
+      </div>
+    </section>
+
     <section v-if="store.summary" class="card asset-total-panel">
       <div class="asset-total-grid">
         <article class="metric asset-total currency-total cny-total">

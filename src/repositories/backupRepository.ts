@@ -33,6 +33,7 @@ export const backupRepository = {
     return accounts + assets + positions + prices + snapshots > 0
   },
   hasDemoClearedFlag: async (): Promise<boolean> => Boolean(await db.metadata.get('demoDataClearedAt')),
+  getMetadata: () => db.metadata.toArray(),
   exportAll: async (): Promise<BackupData> => ({
     accounts: await db.accounts.toArray(),
     assets: await db.assets.toArray(),

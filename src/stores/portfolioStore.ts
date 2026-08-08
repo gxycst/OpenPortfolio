@@ -15,6 +15,7 @@ export const usePortfolioStore = defineStore('portfolio', {
     prices: [] as Price[],
     exchangeRates: [] as ExchangeRate[],
     summary: undefined as PortfolioSummary | undefined,
+    isDemoData: false,
     loading: false,
     error: ''
   }),
@@ -26,11 +27,12 @@ export const usePortfolioStore = defineStore('portfolio', {
         await backupService.ensureDemoDataIfEmpty()
         await exchangeRateService.ensureCoreRates()
         await Promise.allSettled([priceService.refreshStaleFundPrices(), priceService.refreshStaleStockPrices()])
-        const [accounts, positionData, exchangeRates, summary] = await Promise.all([
+        const [accounts, positionData, exchangeRates, summary, isDemoData] = await Promise.all([
           accountService.list(),
           positionService.list(),
           exchangeRateService.list(),
-          portfolioService.summarize()
+          portfolioService.summarize(),
+          backupService.isDemoDataActive()
         ])
         this.accounts = accounts
         this.positions = positionData.positions
@@ -38,6 +40,7 @@ export const usePortfolioStore = defineStore('portfolio', {
         this.prices = positionData.prices
         this.exchangeRates = exchangeRates
         this.summary = summary
+        this.isDemoData = isDemoData
       } catch (error) {
         this.error = error instanceof Error ? error.message : '加载失败'
       } finally {

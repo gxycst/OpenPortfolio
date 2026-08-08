@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { demoBackupData } from '@/data/demoBackup'
-import { validateBackup } from '@/services/backupService'
+import { isBundledDemoData, validateBackup } from '@/services/backupService'
 
 describe('backup validation', () => {
   it('accepts a v1 backup envelope', () => {
@@ -40,5 +40,16 @@ describe('backup validation', () => {
     expect(validateBackup(backup)).toBe(backup)
     expect(demoBackupData.accounts.length).toBeGreaterThan(0)
     expect(demoBackupData.positions.length).toBeGreaterThan(0)
+  })
+
+  it('recognizes bundled demo data even without metadata markers', () => {
+    expect(isBundledDemoData(demoBackupData)).toBe(true)
+  })
+
+  it('does not recognize changed user data as bundled demo data', () => {
+    expect(isBundledDemoData({
+      ...demoBackupData,
+      positions: demoBackupData.positions.slice(1)
+    })).toBe(false)
   })
 })
