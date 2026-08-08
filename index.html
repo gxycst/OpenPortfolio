@@ -5,9 +5,73 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.ico" />
     <title>有数资产</title>
+    <style>
+      html,
+      body,
+      #app {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: #f4f7f9;
+      }
+
+      .app-loading {
+        display: grid;
+        min-height: 100%;
+        place-items: center;
+        color: #52616f;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      .app-loading__panel {
+        display: grid;
+        justify-items: center;
+        gap: 0.75rem;
+        padding: 1.5rem;
+      }
+
+      .app-loading__mark {
+        position: relative;
+        width: 42px;
+        height: 42px;
+        border: 3px solid #cfe5dc;
+        border-top-color: #059669;
+        border-radius: 999px;
+        animation: app-loading-spin 0.9s linear infinite;
+      }
+
+      .app-loading__title {
+        color: #17202a;
+        font-size: 1rem;
+        font-weight: 800;
+      }
+
+      .app-loading__text {
+        font-size: 0.86rem;
+        font-weight: 600;
+      }
+
+      @keyframes app-loading-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="app-loading">
+        <div class="app-loading__panel">
+          <div class="app-loading__mark"></div>
+          <div class="app-loading__title">有数资产</div>
+          <div class="app-loading__text">正在加载资产账本...</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
