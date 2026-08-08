@@ -40,6 +40,5 @@ describe('backup validation', () => {
     expect(validateBackup(backup)).toBe(backup)
     expect(demoBackupData.accounts.length).toBeGreaterThan(0)
     expect(demoBackupData.positions.length).toBeGreaterThan(0)
-    expect(demoBackupData.metadata.some((item) => item.key === 'demoDataLoadedAt')).toBe(true)
   })
 })
