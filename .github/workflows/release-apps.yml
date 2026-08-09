@@ -37,16 +37,16 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path output
-          Copy-Item src-tauri\target\release\openportfolio.exe output\有数资产.exe
-          Compress-Archive -Path output\有数资产.exe -DestinationPath output\有数资产-windows-x64-portable.zip -Force
+          Copy-Item src-tauri\target\release\openportfolio.exe output\YoushuAssets.exe
+          Compress-Archive -Path output\YoushuAssets.exe -DestinationPath output\YoushuAssets-windows-x64-portable.zip -Force
 
       - name: Upload Windows assets
         uses: actions/upload-artifact@v4
         with:
           name: windows-assets
           path: |
-            output/有数资产.exe
-            output/有数资产-windows-x64-portable.zip
+            output/YoushuAssets.exe
+            output/YoushuAssets-windows-x64-portable.zip
 
   build-android:
     name: Build Android APK
@@ -116,21 +116,21 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=Youshu Assets,O=Youshu Assets,C=US"
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/有数资产-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/YoushuAssets-android-arm64-release-aligned.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
             --ks output/openportfolio-sideload.jks \
             --ks-key-alias openportfolio-sideload \
             --ks-pass pass:openportfolio \
             --key-pass pass:openportfolio \
-            --out output/有数资产-android-arm64-release.apk \
-            output/有数资产-android-arm64-release-aligned.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/有数资产-android-arm64-release.apk
+            --out output/YoushuAssets-android-arm64-release.apk \
+            output/YoushuAssets-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/YoushuAssets-android-arm64-release.apk
 
       - name: Upload Android assets
         uses: actions/upload-artifact@v4
         with:
           name: android-assets
-          path: output/有数资产-android-arm64-release.apk
+          path: output/YoushuAssets-android-arm64-release.apk
 
       - name: Upload Android build log
         if: always()
@@ -162,7 +162,7 @@ jobs:
             有数资产 local-first app release.
 
             Assets:
-            - 有数资产.exe: Windows portable executable
-            - 有数资产-windows-x64-portable.zip: Windows portable zip
-            - 有数资产-android-arm64-release.apk: Android arm64 APK for sideload testing
+            - YoushuAssets.exe: Windows portable executable
+            - YoushuAssets-windows-x64-portable.zip: Windows portable zip
+            - YoushuAssets-android-arm64-release.apk: Android arm64 APK for sideload testing
           files: release-assets/*

@@ -78,15 +78,15 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=Youshu Assets,O=Youshu Assets,C=US"
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/有数资产-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/YoushuAssets-android-arm64-release-aligned.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
             --ks output/openportfolio-sideload.jks \
             --ks-key-alias openportfolio-sideload \
             --ks-pass pass:openportfolio \
             --key-pass pass:openportfolio \
-            --out output/有数资产-android-arm64-release.apk \
-            output/有数资产-android-arm64-release-aligned.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/有数资产-android-arm64-release.apk
+            --out output/YoushuAssets-android-arm64-release.apk \
+            output/YoushuAssets-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/YoushuAssets-android-arm64-release.apk
 
       - name: Upload Android build log
         if: always()
@@ -99,13 +99,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: youshu-assets-android-arm64-release
-          path: output/有数资产-android-arm64-release.apk
+          path: output/YoushuAssets-android-arm64-release.apk
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: output/有数资产-android-arm64-release.apk
+          files: output/YoushuAssets-android-arm64-release.apk
 
       - name: Attach Android build log on failure
         if: failure() && startsWith(github.ref, 'refs/tags/')

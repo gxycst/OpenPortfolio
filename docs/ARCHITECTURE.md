@@ -865,7 +865,7 @@ Windows 桌面版采用 Tauri 2 封装现有 Vite 静态前端。
 * 不新增服务器、云数据库、登录系统或遥测功能。
 * 继续使用前端 IndexedDB 保存用户数据。
 * 继续保留完整备份导出和恢复能力。
-* GitHub Release 上传便携版 zip，解压后直接运行 `有数资产.exe`。
+* GitHub Release 上传便携版 zip，解压后直接运行 `YoushuAssets.exe`。
 
 桌面版构建不改变当前业务分层、数据模型和行情 Provider 规则。
 
