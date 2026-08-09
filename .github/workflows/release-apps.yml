@@ -107,7 +107,24 @@ jobs:
             find src-tauri/gen/android/app/build/outputs -type f || true
             exit 1
           fi
-          cp "$APK_PATH" output/OpenPortfolio-android-arm64-release.apk
+          keytool -genkeypair \
+            -keystore output/openportfolio-sideload.jks \
+            -storepass openportfolio \
+            -keypass openportfolio \
+            -alias openportfolio-sideload \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=OpenPortfolio,O=OpenPortfolio,C=US"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/OpenPortfolio-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks output/openportfolio-sideload.jks \
+            --ks-key-alias openportfolio-sideload \
+            --ks-pass pass:openportfolio \
+            --key-pass pass:openportfolio \
+            --out output/OpenPortfolio-android-arm64-release.apk \
+            output/OpenPortfolio-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/OpenPortfolio-android-arm64-release.apk
 
       - name: Upload Android assets
         uses: actions/upload-artifact@v4
