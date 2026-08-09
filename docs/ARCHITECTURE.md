@@ -855,6 +855,20 @@ GitHub Pages
 * Pull Request 通过测试后合并。
 * GitHub Pages 只部署 `main` 分支构建结果。
 
+### 13.1 Windows 桌面绿色版
+
+Windows 桌面版采用 Tauri 2 封装现有 Vite 静态前端。
+
+当前桌面版定位为 Web MVP 的本地运行外壳：
+
+* 使用系统 WebView2，不内置 Chromium。
+* 不新增服务器、云数据库、登录系统或遥测功能。
+* 继续使用前端 IndexedDB 保存用户数据。
+* 继续保留完整备份导出和恢复能力。
+* GitHub Release 上传便携版 zip，解压后直接运行 `OpenPortfolio.exe`。
+
+桌面版构建不改变当前业务分层、数据模型和行情 Provider 规则。
+
 ---
 
 ## 十四、MVP 开发顺序
@@ -1009,4 +1023,4 @@ GitHub Pages
 | 行情更新  | 通过 Provider 接入，页面不得直接请求外部接口 |
 | 首版价格  | 股票/ETF 当前价、基金净值和汇率优先自动获取 |
 | 云端服务  | 不使用              |
-| 桌面客户端 | 后续评估             |
+| 桌面客户端 | Tauri 2 绿色版套壳，不改变本地优先架构 |

@@ -8,6 +8,9 @@
     "build": "vue-tsc --noEmit && vite build",
     "build:github": "npm run build -- --base=/OpenPortfolio/",
     "deploy:github": "npm run build:github && gh-pages -d dist",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit"
   },
@@ -21,6 +24,7 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@vue/tsconfig": "^0.7.0",
     "gh-pages": "^6.3.0",
     "typescript": "^5.8.3",

@@ -1,0 +1,53 @@
+name: Release Windows Portable
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-portable:
+    name: Build Windows portable exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri executable
+        run: npm run tauri:build
+
+      - name: Package portable executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path output
+          Copy-Item src-tauri\target\release\openportfolio.exe output\OpenPortfolio.exe
+          Compress-Archive -Path output\OpenPortfolio.exe -DestinationPath output\OpenPortfolio-windows-x64-portable.zip -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenPortfolio-windows-x64-portable
+          path: output/OpenPortfolio-windows-x64-portable.zip
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/OpenPortfolio-windows-x64-portable.zip
