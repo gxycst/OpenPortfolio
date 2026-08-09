@@ -44,10 +44,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OpenPortfolio-windows-x64-portable
-          path: output/OpenPortfolio-windows-x64-portable.zip
+          path: |
+            output/OpenPortfolio.exe
+            output/OpenPortfolio-windows-x64-portable.zip
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: output/OpenPortfolio-windows-x64-portable.zip
+          files: |
+            output/OpenPortfolio.exe
+            output/OpenPortfolio-windows-x64-portable.zip
