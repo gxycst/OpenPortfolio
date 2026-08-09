@@ -865,7 +865,7 @@ Windows 桌面版采用 Tauri 2 封装现有 Vite 静态前端。
 * 不新增服务器、云数据库、登录系统或遥测功能。
 * 继续使用前端 IndexedDB 保存用户数据。
 * 继续保留完整备份导出和恢复能力。
-* GitHub Release 上传便携版 zip，解压后直接运行 `OpenPortfolio.exe`。
+* GitHub Release 上传便携版 zip，解压后直接运行 `有数资产.exe`。
 
 桌面版构建不改变当前业务分层、数据模型和行情 Provider 规则。
 
@@ -877,6 +877,7 @@ Android 版同样采用 Tauri 2 封装现有 Vite 静态前端。
 
 * GitHub Release 上传 arm64 release APK，面向现代 Android 手机侧载安装。
 * APK 在 GitHub Actions 中使用侧载证书签名，以便直接安装测试。
+* 桌面和移动客户端显示名称统一为“有数资产”，Android 包标识为 `com.youshu.assets`。
 * 不新增服务器、云数据库、登录系统或遥测功能。
 * 继续使用前端 IndexedDB 保存用户数据。
 * 正式上架或长期覆盖安装前，需要配置稳定的 Android 签名密钥。

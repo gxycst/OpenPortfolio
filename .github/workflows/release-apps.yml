@@ -37,16 +37,16 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path output
-          Copy-Item src-tauri\target\release\openportfolio.exe output\OpenPortfolio.exe
-          Compress-Archive -Path output\OpenPortfolio.exe -DestinationPath output\OpenPortfolio-windows-x64-portable.zip -Force
+          Copy-Item src-tauri\target\release\openportfolio.exe output\有数资产.exe
+          Compress-Archive -Path output\有数资产.exe -DestinationPath output\有数资产-windows-x64-portable.zip -Force
 
       - name: Upload Windows assets
         uses: actions/upload-artifact@v4
         with:
           name: windows-assets
           path: |
-            output/OpenPortfolio.exe
-            output/OpenPortfolio-windows-x64-portable.zip
+            output/有数资产.exe
+            output/有数资产-windows-x64-portable.zip
 
   build-android:
     name: Build Android APK
@@ -115,22 +115,22 @@ jobs:
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -dname "CN=OpenPortfolio,O=OpenPortfolio,C=US"
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/OpenPortfolio-android-arm64-release-aligned.apk
+            -dname "CN=Youshu Assets,O=Youshu Assets,C=US"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$APK_PATH" output/有数资产-android-arm64-release-aligned.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
             --ks output/openportfolio-sideload.jks \
             --ks-key-alias openportfolio-sideload \
             --ks-pass pass:openportfolio \
             --key-pass pass:openportfolio \
-            --out output/OpenPortfolio-android-arm64-release.apk \
-            output/OpenPortfolio-android-arm64-release-aligned.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/OpenPortfolio-android-arm64-release.apk
+            --out output/有数资产-android-arm64-release.apk \
+            output/有数资产-android-arm64-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose output/有数资产-android-arm64-release.apk
 
       - name: Upload Android assets
         uses: actions/upload-artifact@v4
         with:
           name: android-assets
-          path: output/OpenPortfolio-android-arm64-release.apk
+          path: output/有数资产-android-arm64-release.apk
 
       - name: Upload Android build log
         if: always()
@@ -159,10 +159,10 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           body: |
-            OpenPortfolio local-first app release.
+            有数资产 local-first app release.
 
             Assets:
-            - OpenPortfolio.exe: Windows portable executable
-            - OpenPortfolio-windows-x64-portable.zip: Windows portable zip
-            - OpenPortfolio-android-arm64-release.apk: Android arm64 APK for sideload testing
+            - 有数资产.exe: Windows portable executable
+            - 有数资产-windows-x64-portable.zip: Windows portable zip
+            - 有数资产-android-arm64-release.apk: Android arm64 APK for sideload testing
           files: release-assets/*

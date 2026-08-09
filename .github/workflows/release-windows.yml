@@ -37,21 +37,21 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path output
-          Copy-Item src-tauri\target\release\openportfolio.exe output\OpenPortfolio.exe
-          Compress-Archive -Path output\OpenPortfolio.exe -DestinationPath output\OpenPortfolio-windows-x64-portable.zip -Force
+          Copy-Item src-tauri\target\release\openportfolio.exe output\有数资产.exe
+          Compress-Archive -Path output\有数资产.exe -DestinationPath output\有数资产-windows-x64-portable.zip -Force
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenPortfolio-windows-x64-portable
+          name: youshu-assets-windows-x64-portable
           path: |
-            output/OpenPortfolio.exe
-            output/OpenPortfolio-windows-x64-portable.zip
+            output/有数资产.exe
+            output/有数资产-windows-x64-portable.zip
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            output/OpenPortfolio.exe
-            output/OpenPortfolio-windows-x64-portable.zip
+            output/有数资产.exe
+            output/有数资产-windows-x64-portable.zip
