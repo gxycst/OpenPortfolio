@@ -12,7 +12,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:android:init": "tauri android init --ci",
-    "tauri:android:build": "tauri android build --debug --apk --target aarch64 --ci",
+    "tauri:android:build": "tauri android build --apk --target aarch64 --ci",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit"
   },

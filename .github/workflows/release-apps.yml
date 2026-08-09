@@ -107,13 +107,13 @@ jobs:
             find src-tauri/gen/android/app/build/outputs -type f || true
             exit 1
           fi
-          cp "$APK_PATH" output/OpenPortfolio-android-arm64-debug.apk
+          cp "$APK_PATH" output/OpenPortfolio-android-arm64-release.apk
 
       - name: Upload Android assets
         uses: actions/upload-artifact@v4
         with:
           name: android-assets
-          path: output/OpenPortfolio-android-arm64-debug.apk
+          path: output/OpenPortfolio-android-arm64-release.apk
 
       - name: Upload Android build log
         if: always()
@@ -147,5 +147,5 @@ jobs:
             Assets:
             - OpenPortfolio.exe: Windows portable executable
             - OpenPortfolio-windows-x64-portable.zip: Windows portable zip
-            - OpenPortfolio-android-arm64-debug.apk: Android arm64 APK for sideload testing
+            - OpenPortfolio-android-arm64-release.apk: Android arm64 APK for sideload testing
           files: release-assets/*

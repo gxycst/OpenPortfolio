@@ -875,7 +875,7 @@ Android 版同样采用 Tauri 2 封装现有 Vite 静态前端。
 
 当前 Android 版定位为本地使用的 APK：
 
-* GitHub Release 上传 arm64 APK，面向现代 Android 手机侧载安装。
+* GitHub Release 上传 arm64 release APK，面向现代 Android 手机侧载安装。
 * 不新增服务器、云数据库、登录系统或遥测功能。
 * 继续使用前端 IndexedDB 保存用户数据。
 * 正式上架或长期覆盖安装前，需要配置稳定的 Android 签名密钥。
